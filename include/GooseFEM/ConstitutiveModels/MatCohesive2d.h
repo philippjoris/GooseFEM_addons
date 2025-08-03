@@ -355,139 +355,163 @@ public:
                 }                
                 
                 // Step 1: decompose delta into delta_n and delta_t
-                double delta_n = std::max(0.0, delta[0]);
+                double delta_n = delta[0];
                 double delta_t = delta[1];
 
-                // Step 2: calculate effective displacement jump delta_eff = sqrt{ pow(max(delta_n), 2) + beta * pow(max(delta_t), 2) }
-                m_delta_eff.flat(i) = std::sqrt(delta_n * delta_n + beta * delta_t * delta_t);
+                const double K_penalty_max = 100.0 * Kn; 
 
-                double delta_eff = m_delta_eff.flat(i);
-                // Step 3: calculate Damage value
-                double D_instant_trial;
-                if (delta_eff <= delta0) {
-                    D_instant_trial = 0.0;
-                } else if (delta_eff >= deltafrac) {
-                    D_instant_trial = 1.0;
-                } else {
-                    if (std::abs(G) < 1e-12) { 
-                        D_instant_trial = 1.0;
-                    } else {
-                        D_instant_trial = (deltafrac * (delta_eff - delta0)) / (delta_eff * G);
-                    }
-                }
+                const double delta_n_transition = -1e-03;
 
-                D_instant_trial = std::max(D_instant_trial, damage_t);
-                D_instant_trial = std::min(D_instant_trial, 1.0);
-
-                // Viscous regularization
-                double current_D_v;
-                if (eta < 1e-12) {
-                    current_D_v = D_instant_trial;
-                } else {
-                    // Backwards Euler update for viscous damage 
-                    current_D_v = damage_v_t + (dt / eta) * (D_instant_trial - damage_v_t);
-                }
-
-                current_D_v = std::max(0.0, current_D_v);
-                current_D_v = std::min(1.0, current_D_v);
-
-                m_Damage.flat(i) = current_D_v;
-                m_Damage_v.flat(i) = current_D_v; 
-
-                // Shall I limit the damage to one? What if damage is averaged for a cell?
-                if (element_erosion && m_Damage.flat(i) >= 1.0) {
-                    m_failed.flat(i) = true; 
-                    }                    
-                
-                // Step 4: Calculate traction vector
-                T_local(0) = (1 - current_D_v) * Kn * delta_n;
-                T_local(1) = (1 - current_D_v) * Kt * delta_t;    
-                
-                // Transform local traction vector to global coordinates
-                GT::A2_dot_B1(P_matrix.data(), T_local.data(), T.data());
-                
-                // --- Tangent Calculation ---
-                if (!compute_tangent) {
-                    return;
-                }
-                
-                // Step 4: Calculate local tangent stiffness C_local
-                double dD_d_delta_eff = 0.0;
-                if (delta_eff > delta0 && delta_eff < deltafrac && std::abs(G) > 1e-12) {
-                    // Derivative of D_trial = (deltafrac * (delta_eff - delta0)) / (delta_eff * G)
-                    // w.r.t delta_eff
-                    // d/dx (a * (x-b) / (x * c)) = a/c * d/dx ( (x-b)/x ) = a/c * d/dx (1 - b/x)
-                    // = a/c * (b/x^2)
-                    // So, dD_d_delta_eff = (deltafrac / G) * (delta0 / (delta_eff * delta_eff));
-                    dD_d_delta_eff = (deltafrac * delta0) / (G * delta_eff * delta_eff);
-                }
-
-                // Derivatives of delta_eff w.r.t delta_n and delta_t
-                double d_delta_eff_d_delta_n = (delta_eff > 1e-12) ? delta_n / delta_eff : 0.0;
-                double d_delta_eff_d_delta_t = (delta_eff > 1e-12) ? beta * delta_t / delta_eff : 0.0;
-
-                // Derivative of viscous damage w.r.t. instantaneous damage.
-                // d(current_D_v)/d(D_trial_instantaneous) = dt / eta if eta > 0
-                double d_current_D_v_d_D_instant_trial = (eta > 1e-12) ? (dt / eta) : 1.0;
-
-                // Effective stiffness without damage, but scaled by current_D_v (often called secant modulus for damage)
-                double K_n_eff_secant = (1.0 - current_D_v) * Kn;
-                double K_t_eff_secant = (1.0 - current_D_v) * Kt;
-
-                if (delta_eff <= delta0){
+                if (delta_n < 0.0) { 
+                    
+                    // // T_local(0) = K_penalty_comp * delta_n; 
+                    // T_local(1) = 0.0;                             
+// 
+                    // // Damage state (no damage in compression):
+                    // m_delta_eff.flat(i) = 0.0; 
+                    // m_Damage.flat(i) = 0.0;
+                    // m_Damage_v.flat(i) = 0.0;
+// 
+                    // // Tangent Stiffness C_local in compression:
+                    // C_local.fill(0.0);
+                    // // C_local(0, 0) = K_penalty_comp; 
+                    // C_local(1, 1) = 0.0;          
+                    // if (delta_n >= delta_n_transition) {
+                    //     double x_scaled = delta_n / delta_n_transition;
+                    //     T_local(0) = K_penalty_max * delta_n * (3.0 * x_scaled * x_scaled - 2.0 * x_scaled * x_scaled * x_scaled);
+                    //     C_local(0,0) = K_penalty_max * (
+                    //     (3.0 * x_scaled * x_scaled - 2.0 * x_scaled * x_scaled * x_scaled) + 
+                    //     delta_n * (6.0 * delta_n / (delta_n_transition * delta_n_transition) - 6.0 * std::pow(delta_n, 2) / std::pow(delta_n_transition, 3)) // delta_n * f'(delta_n)
+                    //     );                        
+                    // } else {
+                    //     T_local(0) = K_penalty_max * delta_n;
+                    //     C_local(0,0) = K_penalty_max;
+                    // }
+                    T_local(0) = Kn * delta_n;
+                    T_local(1) = Kt * delta_t; 
                     C_local(0, 0) = Kn;
                     C_local(0, 1) = 0.0;
                     C_local(1, 0) = 0.0;
                     for (size_t k = 0; k < m_ndim - 1; ++k) {
                         C_local(k + 1, k + 1) = Kt; 
                     }
+                    // m_delta_eff.flat(i) = 0.0; 
+                    // m_Damage.flat(i) = 0.0;
+                    // m_Damage_v.flat(i) = 0.0;
+                } else {
+
+                    // Step 2: calculate effective displacement jump delta_eff = sqrt{ pow(max(delta_n), 2) + beta * pow(max(delta_t), 2) }
+                    m_delta_eff.flat(i) = std::sqrt(delta_n * delta_n + beta * delta_t * delta_t);
+
+                    double delta_eff = m_delta_eff.flat(i);
+
+                    // Step 3: calculate Damage value
+                    double D_instant_trial;
+                    if (delta_eff <= delta0) {
+                        D_instant_trial = 0.0;
+                    } else if (delta_eff >= deltafrac) {
+                        D_instant_trial = 1.0;
+                    } else {
+                        if (std::abs(G) < 1e-12) { 
+                            D_instant_trial = 1.0;
+                        } else {
+                            D_instant_trial = (deltafrac * (delta_eff - delta0)) / (delta_eff * G);
+                        }
+                    }
+
+                    D_instant_trial = std::max(D_instant_trial, damage_t);
+                    D_instant_trial = std::min(D_instant_trial, 1.0);
+
+                    // Viscous regularization
+                    double current_D_v;
+                    if (eta < 1e-12) {
+                        current_D_v = D_instant_trial;
+                    } else {
+                        // Backwards Euler update for viscous damage 
+                        current_D_v = damage_v_t + (dt / eta) * (D_instant_trial - damage_v_t);
+                    }
+
+                    current_D_v = std::max(0.0, current_D_v);
+                    current_D_v = std::min(1.0, current_D_v);
+
+                    m_Damage.flat(i) = current_D_v;
+                    m_Damage_v.flat(i) = current_D_v; 
+
+                    if (element_erosion && m_Damage.flat(i) >= 1.0) {
+                        m_failed.flat(i) = true; 
+                        }                    
+                    
+                    // Step 4: Calculate traction vector
+                    T_local(0) = (1 - current_D_v) * Kn * delta_n;
+                    T_local(1) = (1 - current_D_v) * Kt * delta_t;    
+                               
+                    
+                    // Step 5: Calculate local tangent stiffness C_local
+                    double dD_d_delta_eff = 0.0;
+                    if (delta_eff > delta0 && delta_eff < deltafrac && std::abs(G) > 1e-12) {
+                        // Derivative of D_trial = (deltafrac * (delta_eff - delta0)) / (delta_eff * G)
+                        // w.r.t delta_eff
+                        // d/dx (a * (x-b) / (x * c)) = a/c * d/dx ( (x-b)/x ) = a/c * d/dx (1 - b/x)
+                        // = a/c * (b/x^2)
+                        // So, dD_d_delta_eff = (deltafrac / G) * (delta0 / (delta_eff * delta_eff));
+                        dD_d_delta_eff = (deltafrac * delta0) / (G * delta_eff * delta_eff);
+                    }
+
+                    // Derivatives of delta_eff w.r.t delta_n and delta_t
+                    double d_delta_eff_d_delta_n = (delta_eff > 1e-12) ? delta_n / delta_eff : 0.0;
+                    double d_delta_eff_d_delta_t = (delta_eff > 1e-12) ? beta * delta_t / delta_eff : 0.0;
+
+                    // Derivative of viscous damage w.r.t. instantaneous damage.
+                    // d(current_D_v)/d(D_trial_instantaneous) = dt / eta if eta > 0
+                    double d_current_D_v_d_D_instant_trial = (eta > 1e-12) ? (dt / eta) : 1.0;
+
+                    // Effective stiffness without damage, but scaled by current_D_v (often called secant modulus for damage)
+                    double K_n_eff_secant = (1.0 - current_D_v) * Kn;
+                    double K_t_eff_secant = (1.0 - current_D_v) * Kt;
+
+                    if (delta_eff <= delta0){
+                        C_local(0, 0) = Kn;
+                        C_local(0, 1) = 0.0;
+                        C_local(1, 0) = 0.0;
+                        for (size_t k = 0; k < m_ndim - 1; ++k) {
+                            C_local(k + 1, k + 1) = Kt; 
+                        }
+                    }
+                    else if (current_D_v >= 1.0 - 1e-6){ // Use current_D_v for failure check
+                        C_local.fill(0.0);
+                    }
+                    else {
+                        // dT_n/d_delta_n = (1-d_v) * Kn - Kn * delta_n * d(d_v)/d(delta_n)
+                        // d(d_v)/d(delta_n) = d(d_v)/d(D_trial_instantaneous) * d(D_trial_instantaneous)/d(delta_eff) * d(delta_eff)/d(delta_n)
+
+                        double d_dv_d_delta_n = d_current_D_v_d_D_instant_trial * dD_d_delta_eff * d_delta_eff_d_delta_n;
+                        double d_dv_d_delta_t = d_current_D_v_d_D_instant_trial * dD_d_delta_eff * d_delta_eff_d_delta_t;
+
+                        // d_Tn/d_delta_n = (1-d_v) * Kn + (-Kn * delta_n) * d(d_v)/d(delta_n)
+                        C_local(0, 0) = K_n_eff_secant - Kn * delta_n * d_dv_d_delta_n; // Added derivative term for d_v
+                        // d_Tn/d_delta_t = (-Kn * delta_n) * d(d_v)/d(delta_t)
+                        C_local(0, 1) = -Kn * delta_n * d_dv_d_delta_t; // Added derivative term for d_v
+
+                        // d_Tt/d_delta_n = (-Kt * delta_t) * d(d_v)/d(delta_n)
+                        C_local(1, 0) = -Kt * delta_t * d_dv_d_delta_n; // Added derivative term for d_v
+                        // d_Tt/d_delta_t = (1-d_v) * Kt + (-Kt * delta_t) * d(d_v)/d(delta_t)
+                        C_local(1, 1) = K_t_eff_secant - Kt * delta_t * d_dv_d_delta_t; // Added derivative term for d_v
+                    }
+                }    
+                
+                // Step 6: Transform local tractions to global tractions
+                GT::A2_dot_B1(P_matrix.data(), T_local.data(), T.data()); 
+
+                // --- Tangent Calculation ---
+                if (!compute_tangent) {
+                    return;
                 }
-                else if (current_D_v >= 1.0 - 1e-6){ // Use current_D_v for failure check
-                    C_local.fill(0.0);
-                }
-                else {
-                    // dT_n/d_delta_n = (1-d_v) * Kn - Kn * delta_n * d(d_v)/d(delta_n)
-                    // d(d_v)/d(delta_n) = d(d_v)/d(D_trial_instantaneous) * d(D_trial_instantaneous)/d(delta_eff) * d(delta_eff)/d(delta_n)
-
-                    double d_dv_d_delta_n = d_current_D_v_d_D_instant_trial * dD_d_delta_eff * d_delta_eff_d_delta_n;
-                    double d_dv_d_delta_t = d_current_D_v_d_D_instant_trial * dD_d_delta_eff * d_delta_eff_d_delta_t;
-
-                    // d_Tn/d_delta_n = (1-d_v) * Kn + (-Kn * delta_n) * d(d_v)/d(delta_n)
-                    C_local(0, 0) = K_n_eff_secant - Kn * delta_n * d_dv_d_delta_n; // Added derivative term for d_v
-                    // d_Tn/d_delta_t = (-Kn * delta_n) * d(d_v)/d(delta_t)
-                    C_local(0, 1) = -Kn * delta_n * d_dv_d_delta_t; // Added derivative term for d_v
-
-                    // d_Tt/d_delta_n = (-Kt * delta_t) * d(d_v)/d(delta_n)
-                    C_local(1, 0) = -Kt * delta_t * d_dv_d_delta_n; // Added derivative term for d_v
-                    // d_Tt/d_delta_t = (1-d_v) * Kt + (-Kt * delta_t) * d(d_v)/d(delta_t)
-                    C_local(1, 1) = K_t_eff_secant - Kt * delta_t * d_dv_d_delta_t; // Added derivative term for d_v
-                }
-
-                // ------ REMOVE --------
-                // if (delta_eff <= delta0){
-                //     C_local(0, 0) = Kn; 
-                //     for (size_t k = 0; k < m_ndim - 1; ++k) {
-                //         C_local(k + 1, k + 1) = Kt; 
-                //     }
-                //     C_local(0,1) = 0.0;
-                //     C_local(1,0) = 0.0;
-                // }
-                // else if (delta_eff >= deltafrac){
-                //     C_local.fill(0.0);
-                // }
-                // else {
-                //     C_local(0,0) = (1-m_Damage.flat(i))*Kn - (Kn * delta_n * delta_n)/(G * delta_eff);
-                //     C_local(0,1) = -(Kn * beta * delta_n * delta_t)/(G * delta_eff);
-                //     C_local(1,0) = -(Kt * delta_n * delta_t)/(G * delta_eff);
-                //     C_local(1,1) = (1-m_Damage.flat(i)) * Kt - (Kt * beta * delta_t * delta_t)/(G * delta_eff);
-                // }   
-                // ------ REMOVE --------                
                     
                 xt::xtensor_fixed<double, xt::xshape<m_ndim, m_ndim>> P_T;
                 P_T(0,0) = P_matrix(0,0); P_T(0,1) = P_matrix(1,0); 
                 P_T(1,0) = P_matrix(0,1); P_T(1,1) = P_matrix(1,1); 
 
-                // Transform local stiffness matrix to global coordinates
+                // Step 7: Calculate the global stiffness matrix
                 xt::xtensor_fixed<double, xt::xshape<m_ndim, m_ndim>> Temp;
                 GT::A2_dot_B2(C_local.data(), P_T.data(), Temp.data());
                 GT::A2_dot_B2(Temp.data(), P_matrix.data(), C.data());
