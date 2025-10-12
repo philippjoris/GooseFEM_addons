@@ -294,10 +294,15 @@ public:
         derived_cast().assemble_impl(elemmat, conn);
     }
 
-    void finalize()
+    void finalize(bool stabilize)
     {
-        derived_cast().finalize_impl();
+        derived_cast().finalize_impl(stabilize);
     }    
+
+    void stabilize()
+    {
+        derived_cast().stabilize_impl();
+    }      
 
     /**
      * Copy as dense matrix.
@@ -710,11 +715,45 @@ private:
         }
     }
 
-    void finalize_impl()
+    void finalize_impl(bool stabilize)
     {
         m_A.setFromTriplets(m_T.begin(), m_T.end());
+        if (stabilize) {
+            stabilize_impl();
+        }    
         m_changed = true;
     }  
+
+    void stabilize_impl() {
+        // 1. Find the minimum non-zero diagonal value.
+        double min_diag_val = std::numeric_limits<double>::max();
+        bool found_non_zero = false;
+        
+        for (int i = 0; i < m_A.rows(); ++i) {
+            double val = m_A.coeff(i, i);
+            if (std::abs(val) > 1e-12) { 
+                if (std::abs(val) < min_diag_val) {
+                        min_diag_val = std::abs(val);
+                    }
+                found_non_zero = true;
+            }            
+        }
+
+        // 2. Calculate the artificial spring value.
+        if (!found_non_zero) {
+            return;
+        }
+        double spring_val = 1e-3 * min_diag_val;
+
+        // 3. Add artificial springs to zero or near-zero diagonals.
+        for (int i = 0; i < m_A.rows(); ++i) {
+            if (std::abs(m_A.coeff(i, i)) < 1e-12) {
+                m_A.coeffRef(i, i) += spring_val;
+            }
+        }
+    }
+
+    
 
 public:
     /**

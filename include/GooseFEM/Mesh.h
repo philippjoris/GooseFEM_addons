@@ -2744,7 +2744,7 @@ inline array_type::tensor<double, 2> nodal_mass(const C& coor, const E& conn, El
         );
         M.clear();
         M.assemble(quad.Int_N_scalar_NT_dV(rho), conn);
-        M.finalize();
+        M.finalize(false);
     }
     else {
         throw std::runtime_error("Element-type not implemented");

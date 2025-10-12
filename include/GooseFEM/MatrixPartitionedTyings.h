@@ -304,7 +304,7 @@ private:
         }
     }
 
-    void finalize_impl()
+    void finalize_impl(bool stabilize)
     {
         m_Auu.setFromTriplets(m_Tuu.begin(), m_Tuu.end());
         m_Aup.setFromTriplets(m_Tup.begin(), m_Tup.end());
@@ -315,8 +315,42 @@ private:
         m_Adu.setFromTriplets(m_Tdu.begin(), m_Tdu.end());
         m_Adp.setFromTriplets(m_Tdp.begin(), m_Tdp.end());
         m_Add.setFromTriplets(m_Tdd.begin(), m_Tdd.end());
+
+        if (stabilize) {
+            stabilize_impl();
+        }
+
         m_changed = true;
     }    
+
+    void stabilize_impl() {
+        // 1. Find the minimum non-zero diagonal value.
+        double min_diag_val = std::numeric_limits<double>::max();
+        bool found_non_zero = false;
+        
+        for (int i = 0; i < m_Auu.rows(); ++i) {
+            double val = m_Auu.coeff(i, i);
+            if (std::abs(val) > 1e-12) { 
+                if (std::abs(val) < min_diag_val) {
+                        min_diag_val = std::abs(val);
+                    }
+                found_non_zero = true;
+            }            
+        }
+
+        // 2. Calculate the artificial spring value.
+        if (!found_non_zero) {
+            return;
+        }
+        double spring_val = 1e-3 * min_diag_val;
+
+        // 3. Add artificial springs to zero or near-zero diagonals.
+        for (int i = 0; i < m_Auu.rows(); ++i) {
+            if (std::abs(m_Auu.coeff(i, i)) < 1e-12) {
+                m_Auu.coeffRef(i, i) += spring_val;
+            }
+        }
+    }
 
     // todo: test
     template <class T>

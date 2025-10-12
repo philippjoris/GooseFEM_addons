@@ -3,16 +3,11 @@
  * in a Cartesian coordinate system.
  *
  * @file ElementCzm4.h
- * @copyright Copyright 2025. Philipp van der Loos. All rights reserved.
- *
- * TO DO:
- * - RENAME _IMPL FUNCTIONS IF USED EXPLICITLY
- * - RENAME CLASS TO COHESIVE ZONE ELEMENT NAME
- * 
- * 
+ * @copyright Copyright 2025. Philipp van der Loos. All rights reserved. 
  * 
  * 
  */
+
 
 #ifndef GOOSEFEM_ELEMENTCZM4_H
 #define GOOSEFEM_ELEMENTCZM4_H
@@ -21,6 +16,7 @@
 #include "config.h"
 #include "detail.h"
 #include <cmath> // For std::sqrt
+#include <cstddef>
 
 namespace GooseFEM {
 namespace Element {
@@ -307,7 +303,9 @@ public:
         -> array_type::tensor<double, 3>
     {
         auto elemmat = array_type::tensor<double, 3>::from_shape({
-        m_nelem, s_nne * s_ndim, s_nne * s_ndim
+        static_cast<std::ptrdiff_t>(m_nelem),
+        static_cast<std::ptrdiff_t>(s_nne * s_ndim),
+        static_cast<std::ptrdiff_t>(s_nne * s_ndim)
         });
         this->int_BT_D_B_dL(q_tangent_stiffness_global, elemmat);
         return elemmat;
@@ -444,11 +442,14 @@ private:
                     // Tangent vector (unit vector)
                     double t_x = dX_dxi(0) / Jdet_1D;
                     double t_y = dX_dxi(1) / Jdet_1D;
+                    
+                    double n_x = -t_y;
+                    double n_y = t_x;    
 
                     // Rotation matrix R = [[n_x, n_y],
                     //                     [t_x, t_y]]
-                    m_rotation_matrix(e, q, 0, 0) = -t_y;
-                    m_rotation_matrix(e, q, 0, 1) = t_x;
+                    m_rotation_matrix(e, q, 0, 0) = n_x;
+                    m_rotation_matrix(e, q, 0, 1) = n_y;
                     m_rotation_matrix(e, q, 1, 0) = t_x;
                     m_rotation_matrix(e, q, 1, 1) = t_y;
 

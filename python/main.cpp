@@ -18,12 +18,13 @@
 #include "Allocate.hpp"
 #include "Element.hpp"
 #include "ElementCohesive4.hpp"
+#include "ElementCohesive8.hpp"
 #include "ElementHex8.hpp"
 #include "ElementQuad4.hpp"
 #include "ElementQuad4Axisymmetric.hpp"
 #include "ElementQuad4Planar.hpp"
 #include "Iterate.hpp"
-#include "MatCohesive2d.hpp"
+#include "MatCohesive.hpp"
 #include "Matrix.hpp"
 #include "MatrixDiagonal.hpp"
 #include "MatrixDiagonalPartitioned.hpp"
@@ -32,6 +33,7 @@
 #include "Mesh.hpp"
 #include "MeshCohesive.hpp"
 #include "MeshCohesiveQuad4.hpp"
+#include "MeshCohesiveHex8.hpp"
 #include "MeshHex8.hpp"
 #include "MeshQuad4.hpp"
 #include "MeshTri3.hpp"
@@ -97,7 +99,7 @@ PYBIND11_MODULE(_GooseFEM, m)
 
     py::module mCohesive = m.def_submodule("ConstitutiveModels", "Constitutive models including cohesive zones");
     
-    init_MatCohesive2d(mCohesive);
+    init_MatCohesive(mCohesive);
 
     // ----------------
     // GooseFEM.Iterate
@@ -125,6 +127,17 @@ PYBIND11_MODULE(_GooseFEM, m)
 
     init_ElementCohesive4(mElementCohesive4);
     init_ElementCohesive4Gauss(mElementCohesive4Gauss);
+
+    // ----------------------
+    // GooseFEM.Element.Cohesive8
+    // ----------------------
+
+    py::module mElementCohesive8 =
+        mElement.def_submodule("Cohesive8", "Cohesive zone elements (3D)");
+    py::module mElementCohesive8Gauss = mElementCohesive8.def_submodule("Gauss", "Gauss quadrature");        
+
+    init_ElementCohesive8(mElementCohesive8);
+    init_ElementCohesive8Gauss(mElementCohesive8Gauss);    
 
     // ----------------------
     // GooseFEM.Element.Quad4
@@ -206,6 +219,14 @@ PYBIND11_MODULE(_GooseFEM, m)
     py::module mMeshCohesiveQuad4 = mMeshCohesive.def_submodule("Quad4", "Regular cohesive zone mesh (2D)");
 
     init_MeshCohesiveQuad4(mMeshCohesiveQuad4); 
+
+    // -------------
+    // GooseFEM.CohesiveMesh.CohesiveHex8
+    // -------------
+
+    py::module mMeshCohesiveHex8 = mMeshCohesive.def_submodule("Hex8", "Regular cohesive zone mesh (3D)");
+
+    init_MeshCohesiveHex8(mMeshCohesiveHex8); 
 
     // ---------------
     // GooseFEM.Tyings

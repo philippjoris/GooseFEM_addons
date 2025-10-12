@@ -34,7 +34,7 @@ void register_Matrix_MatrixBase(P& cls)
 
     cls.def("clear", &C::clear, "Clear the internal triplets");
 
-    cls.def("finalize", &C::finalize, "Set from internal triplets");
+    cls.def("finalize", &C::finalize, "Set from internal triplets", py::arg("stabilize") = false);
     
     cls.def("Todense", &C::Todense, "Return a dense matrix (copy)");
 

@@ -25,3 +25,17 @@ Tom de Geus was financially supported by:
 *   [Eindhoven University of Technology (TU/e), Eindhoven, The Netherlands](http://www.tue.nl)
 *   [The Netherlands Research Council (NWO), The Netherlands](http://www.nwo.nl)
 *   [Materials Innovation Institute (M2i), The Netherlands](http://www.m2i.nl)
+
+
+## Installation Guidelines / Help with GMatTensor
+If changes in GMatTensor are not recognized by GooseFEM, then because GooseFEM looks for the GMatTensor files under e.g.C:\Users\20250672\AppData\Local\anaconda3\envs\goose\Library. Often, if GMatTensor is compiled, the files are installed under site-packages.
+
+To overcome this, you can force GMatTensor to install under your desired path C:\Users\20250672\AppData\Local\anaconda3\envs\goose\Library by providing this
+path when compiling.
+
+In your GMatTensor package, you do the following:
+1. cmake -S . -B build -DCMAKE_INSTALL_PREFIX=C:\Users\20250672\AppData\Local\anaconda3\envs\goose\Library
+2. cmake --build build
+3. cmake --install build
+
+

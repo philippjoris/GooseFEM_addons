@@ -181,8 +181,9 @@ public:
     {
         GOOSEFEM_ASSERT(dofval_src.dimension() == 1);
         GOOSEFEM_ASSERT(dofval_dest.dimension() == 1);
-        GOOSEFEM_ASSERT(dofval_src.size() == this->ndof()); // Use base class ndof
-        GOOSEFEM_ASSERT(dofval_dest.size() == this->ndof()); // Use base class ndof
+        // GOOSEFEM_ASSERT(dofval_src.size() == this->ndof()); // Use base class ndof
+        // GOOSEFEM_ASSERT(dofval_dest.size() == this->ndof()); // Use base class ndof
+        GOOSEFEM_ASSERT(dofval_src.size() == dofval_dest.size()); 
 
 #pragma omp parallel for
         for (size_t i = m_nnu; i < m_nni; ++i) { // Loop over independent prescribed DOFs

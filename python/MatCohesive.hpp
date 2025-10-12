@@ -7,7 +7,7 @@
 #ifndef PYGOOSEFEM_MATCOHESIVE2D_H
 #define PYGOOSEFEM_MATCOHESIVE2D_H
 
-#include <GooseFEM/ConstitutiveModels/MatCohesive2d.h>
+#include <GooseFEM/ConstitutiveModels/MatCohesive.h>
 #include <pybind11/pybind11.h>
 #include <xtensor-python/pytensor.hpp>
 
@@ -15,9 +15,10 @@
 
 namespace py = pybind11;
 
-void init_MatCohesive2d(py::module& m)
+void init_MatCohesive(py::module& m)
 {
-    using C_Bilinear = GooseFEM::ConstitutiveModels::Cartesian2d::CohesiveBilinear<2>;
+    // Bind CohesiveBilinear2d Class
+    using C_Bilinear = GooseFEM::ConstitutiveModels::Cartesian2d::CohesiveBilinear2d<2>;
     py::class_<C_Bilinear> cls(m, "CohesiveBilinear2d");
 
         cls.def(
@@ -28,7 +29,7 @@ void init_MatCohesive2d(py::module& m)
                 const xt::pytensor<double, 2>&,
                 const xt::pytensor<double, 2>&,
                 const xt::pytensor<double, 2>&>(),
-            "See :cpp:class:`GooseFEM::ConstitutiveModels::Cartesian2d::Cohesive`.",
+            "See :cpp:class:`GooseFEM::ConstitutiveModels::Cartesian2d::CohesiveBilinear2d`.",
             py::arg("Kn"),
             py::arg("Kt"),
             py::arg("delta0"),
@@ -38,7 +39,7 @@ void init_MatCohesive2d(py::module& m)
         );
 
         cls.def("__repr__", [](const C_Bilinear&) {
-            return "<GooseFEM::ConstitutiveModels::Cartesian2d::Cohesive>";
+            return "<GooseFEM::ConstitutiveModels::Cartesian2d::CohesiveBilinear2d>";
         });
 
         cls.def_property_readonly("Kn", &C_Bilinear::Kn, "Normal stiffness coefficient.");
@@ -94,7 +95,85 @@ void init_MatCohesive2d(py::module& m)
 
         cls.def("increment", &C_Bilinear::increment, "Update history variables.");
 
-    using C_ExpGc = GooseFEM::ConstitutiveModels::Cartesian2d::CohesiveExponential<2>; 
+    // Bind CohesiveBilinear3d Class
+    using C_Bilinear3d = GooseFEM::ConstitutiveModels::Cartesian3d::CohesiveBilinear3d<2>;
+    py::class_<C_Bilinear3d> cls_bl3d(m, "CohesiveBilinear3d");
+
+        cls_bl3d.def(
+            py::init<
+                const xt::pytensor<double, 2>&,
+                const xt::pytensor<double, 2>&,
+                const xt::pytensor<double, 2>&,
+                const xt::pytensor<double, 2>&,
+                const xt::pytensor<double, 2>&,
+                const xt::pytensor<double, 2>&>(),
+            "See :cpp:class:`GooseFEM::ConstitutiveModels::Cartesian3d::CohesiveBilinear3d`.",
+            py::arg("Kn"),
+            py::arg("Kt"),
+            py::arg("delta0"),
+            py::arg("deltafrac"),
+            py::arg("beta"),
+            py::arg("eta")
+        );
+
+        cls_bl3d.def("__repr__", [](const C_Bilinear3d&) {
+            return "<GooseFEM::ConstitutiveModels::Cartesian3d::CohesiveBilinear3d>";
+        });
+
+        cls_bl3d.def_property_readonly("Kn", &C_Bilinear3d::Kn, "Normal stiffness coefficient.");
+        cls_bl3d.def_property_readonly("Kt", &C_Bilinear3d::Kt, "Tangential stiffness coefficient.");
+        cls_bl3d.def_property_readonly("T", &C_Bilinear3d::T, "Traction vector in global coordinates.");
+        cls_bl3d.def_property_readonly("T_local", &C_Bilinear3d::T_local, "Traction vector in local coordinates.");        
+        cls_bl3d.def_property_readonly("C", &C_Bilinear3d::C, "Tangential stiffness matrix in global coordinates.");
+        cls_bl3d.def_property_readonly("C_local", &C_Bilinear3d::C_local, "Tangential stiffness matrix in local coordinates.");        
+        cls_bl3d.def_property_readonly("delta0", &C_Bilinear3d::delta0, "Relative displ. onset of damage.");
+        cls_bl3d.def_property_readonly("Damage", &C_Bilinear3d::Damage, "Accumulated damage variable.");
+        cls_bl3d.def_property_readonly("failed", &C_Bilinear3d::failed, "Flag indicating if element has failed.");
+        cls_bl3d.def_property_readonly("delta_eff", &C_Bilinear3d::delta_eff, "Effective relative displacement.");
+        cls_bl3d.def_property_readonly("eta", &C_Bilinear3d::eta, "Viscosity parameter.");
+
+        cls_bl3d.def_property(
+            "delta",
+            static_cast<xt::pytensor<double, 3>& (C_Bilinear3d::*)()>(&C_Bilinear3d::delta),
+            static_cast<void (C_Bilinear3d::*)(const xt::pytensor<double, 3>&)>(&C_Bilinear3d::set_delta),
+            "Effective separation value."
+        );
+
+        cls_bl3d.def_property(
+            "ori",
+            static_cast<xt::pytensor<double, 4>& (C_Bilinear3d::*)()>(&C_Bilinear3d::ori),
+            static_cast<void (C_Bilinear3d::*)(const xt::pytensor<double, 4>&)>(&C_Bilinear3d::set_ori),
+            "Effective separation value."
+        );
+
+        cls_bl3d.def(
+            "set_delta",
+            py::overload_cast<const xt::pytensor<double, 3>&>(
+                &C_Bilinear3d::set_delta<xt::pytensor<double, 3>>),
+            "Overwrite deformation gradient tensor.",
+            py::arg("arg")
+        );
+
+        cls_bl3d.def(
+            "set_ori",
+            py::overload_cast<const xt::pytensor<double, 4>&>(
+                &C_Bilinear3d::set_ori<xt::pytensor<double, 4>>),
+            "Overwrite deformation gradient tensor.",
+            py::arg("arg")
+        );
+
+        cls_bl3d.def(
+            "refresh", 
+            py::overload_cast<double, bool, bool>(&C_Bilinear3d::refresh), 
+            "Recompute traction from relative separation.", 
+            py::arg("dt"),
+            py::arg("compute_tangent") = true,
+            py::arg("element_erosion") = true
+        );
+
+        cls_bl3d.def("increment", &C_Bilinear3d::increment, "Update history variables.");        
+
+    using C_ExpGc = GooseFEM::ConstitutiveModels::Cartesian2d::CohesiveExponential2d<2>; 
     py::class_<C_ExpGc> cls_expgc(m, "CohesiveExponential2d"); 
 
         cls_expgc.def(
@@ -113,7 +192,7 @@ void init_MatCohesive2d(py::module& m)
         );
 
         cls_expgc.def("__repr__", [](const C_ExpGc&) {
-            return "<GooseFEM::ConstitutiveModels::Cartesian2d::CohesiveExponentialGc>";
+            return "<GooseFEM::ConstitutiveModels::Cartesian3d::CohesiveExponential2d>";
         });
 
         cls_expgc.def_property_readonly("Kn", &C_ExpGc::Kn, "Normal stiffness coefficient.");

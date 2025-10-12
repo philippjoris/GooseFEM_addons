@@ -186,5 +186,194 @@ public:
     }
 };
 
+/**
+ * @brief Base class for 3D meshes that include cohesive elements, using CRTP.
+ *
+ * This base class defines the common interface for 3D mesh generation,
+ * ensuring derived classes implement the necessary methods to provide
+ * coordinates, bulk and cohesive connectivity, and various node sets.
+ * It uses the Curiously Recurring Template Pattern (CRTP).
+ *
+ * @tparam Derived The derived class inheriting from CohesiveMeshBase3d.
+ */
+template <class Derived>
+class CohesiveMeshBase3d {
+protected:
+    /**
+     * @brief Casts 'this' pointer to the derived type (non-const).
+     * @return Reference to the derived object.
+     */
+    Derived& derived_cast() { return static_cast<Derived&>(*this); }
+
+    /**
+     * @brief Casts 'this' pointer to the derived type (const).
+     * @return Const reference to the derived object.
+     */
+    const Derived& derived_cast() const { return static_cast<const Derived&>(*this); }
+
+public:
+    // --- Public Interface Methods ---
+
+    /** @brief Get the degrees of freedom for all nodes. */
+    auto dofs() const
+    {
+        return derived_cast().dofs_impl();
+    }
+
+    /** @brief Get the number of elements in the x-direction. */
+    auto nelx() const
+    {
+        return derived_cast().nelx_impl();
+    }
+
+    /** @brief Get the number of elements in the y-direction. */
+    auto nely() const
+    {
+        return derived_cast().nely_impl();
+    }
+
+    /** @brief Get the number of elements in the z-direction for the lower bulk part. */
+    auto nelz_lower() const
+    {
+        return derived_cast().nelz_lower_impl();
+    }
+
+    /** @brief Get the number of elements in the z-direction for the upper bulk part. */
+    auto nelz_upper() const
+    {
+        return derived_cast().nelz_upper_impl();
+    }
+
+    /** @brief Get the total number of unique nodes in the mesh. */
+    auto nnode() const
+    {
+        return derived_cast().nnode_total_impl();
+    }
+
+    /** @brief Get the spatial dimension of the mesh (e.g., 3 for 3D). */
+    auto ndim() const
+    {
+        return derived_cast().ndim_impl();
+    }
+
+    /** @brief Get the number of nodes per bulk element. */
+    auto nne_bulk() const
+    {
+        return derived_cast().nne_bulk_impl();
+    }
+
+    /** @brief Get the number of nodes per cohesive element. */
+    auto nne_cohesive() const
+    {
+        return derived_cast().nne_cohesive_impl();
+    }
+
+    /** @brief Get the total number of bulk elements. */
+    auto nelem_bulk() const
+    {
+        return derived_cast().nelem_bulk_impl();
+    }
+
+    /** @brief Get the total number of cohesive elements. */
+    auto nelem_cohesive() const
+    {
+        return derived_cast().nelem_cohesive_impl();
+    }
+
+    /** @brief Get the characteristic edge size of the elements. */
+    auto h() const
+    {
+        return derived_cast().h_impl();
+    }
+
+    /** @brief Get the global nodal coordinates. */
+    auto coor() const
+    {
+        return derived_cast().coor_impl();
+    }
+
+    /** @brief Get the connectivity array for all bulk elements. */
+    auto conn_bulk() const
+    {
+        return derived_cast().conn_bulk_impl();
+    }
+
+    /** @brief Get the connectivity array for all cohesive elements. */
+    auto conn_cohesive() const
+    {
+        return derived_cast().conn_cohesive_impl();
+    }
+
+    // --- Boundary Node Sets ---
+
+    /** @brief Get the global node IDs on the bottom face of the mesh (z = 0). */
+    auto nodesBottomFace() const
+    {
+        return derived_cast().nodesBottomFace_impl();
+    }
+
+    /** @brief Get the global node IDs on the top face of the mesh (z = max). */
+    auto nodesTopFace() const
+    {
+        return derived_cast().nodesTopFace_impl();
+    }
+
+    /** @brief Get the global node IDs on the left face of the mesh (x = 0). */
+    auto nodesLeftFace() const
+    {
+        return derived_cast().nodesLeftFace_impl();
+    }
+
+    /** @brief Get the global node IDs on the right face of the mesh (x = max). */
+    auto nodesRightFace() const
+    {
+        return derived_cast().nodesRightFace_impl();
+    }
+
+    /** @brief Get the global node IDs on the front face of the mesh (y = 0). */
+    auto nodesFrontFace() const
+    {
+        return derived_cast().nodesFrontFace_impl();
+    }
+
+    /** @brief Get the global node IDs on the back face of the mesh (y = max). */
+    auto nodesBackFace() const
+    {
+        return derived_cast().nodesBackFace_impl();
+    }
+
+    /** @brief Get the global node IDs on the lower side of the cohesive interface. */
+    auto nodesCohesiveLowerInterface() const
+    {
+        return derived_cast().nodesCohesiveLowerInterface_impl();
+    }
+
+    /** @brief Get the global node IDs on the upper side of the cohesive interface. */
+    auto nodesCohesiveUpperInterface() const
+    {
+        return derived_cast().nodesCohesiveUpperInterface_impl();
+    }
+
+    /** @brief Get the global element IDs for all cohesive elements. */
+    auto elementsCohesive() const
+    {
+        return derived_cast().elementsCohesive_impl();
+    }
+
+    // --- Additional useful functions ---
+
+    /** @brief Get the element numbers of the lower bulk part as a 3D grid. */
+    auto elementgrid_bulk_lower() const
+    {
+        return derived_cast().elementgrid_bulk_lower_impl();
+    }
+
+    /** @brief Get the element numbers of the upper bulk part as a 3D grid. */
+    auto elementgrid_bulk_upper() const
+    {
+        return derived_cast().elementgrid_bulk_upper_impl();
+    }
+};
+
 } // namespace Mesh
 } // namespace GooseFEM
