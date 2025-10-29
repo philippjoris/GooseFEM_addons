@@ -219,7 +219,7 @@ private:
         ret.fill(0.0);
 
 #pragma omp parallel for
-        for (size_t d = 0; d < m_ndof; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)m_ndof; ++d) {
             ret(d, d) = m_A(d);
         }
     }
@@ -263,8 +263,8 @@ private:
         GOOSEFEM_ASSERT(xt::has_shape(b, {m_nnode, m_ndim}));
 
 #pragma omp parallel for
-        for (size_t m = 0; m < m_nnode; ++m) {
-            for (size_t i = 0; i < m_ndim; ++i) {
+        for (ptrdiff_t m = 0; m < (ptrdiff_t)m_nnode; ++m) {
+            for (ptrdiff_t i = 0; i < (ptrdiff_t)m_ndim; ++i) {
                 b(m, i) = m_A(m_dofs(m, i)) * x(m, i);
             }
         }
@@ -289,8 +289,8 @@ private:
         this->factorize();
 
 #pragma omp parallel for
-        for (size_t m = 0; m < m_nnode; ++m) {
-            for (size_t i = 0; i < m_ndim; ++i) {
+        for (ptrdiff_t m = 0; m < (ptrdiff_t)m_nnode; ++m) {
+            for (ptrdiff_t i = 0; i < (ptrdiff_t)m_ndim; ++i) {
                 x(m, i) = m_inv(m_dofs(m, i)) * b(m, i);
             }
         }
@@ -319,7 +319,7 @@ private:
         }
 
 #pragma omp parallel for
-        for (size_t d = 0; d < m_ndof; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)m_ndof; ++d) {
             m_inv(d) = 1.0 / m_A(d);
         }
 

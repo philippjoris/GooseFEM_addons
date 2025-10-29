@@ -44,10 +44,10 @@ namespace GooseFEM {
  */
 class VectorPartitionedTyings : public Vector {
 private:
-    array_type::tensor<size_t, 1> m_iiu; ///< See iiu().
-    array_type::tensor<size_t, 1> m_iip; ///< See iip().
-    array_type::tensor<size_t, 1> m_iii; ///< See iii().
-    array_type::tensor<size_t, 1> m_iid; ///< See iid().
+    xt::xtensor<size_t, 1> m_iiu; ///< See iiu().
+    xt::xtensor<size_t, 1> m_iip; ///< See iip().
+    xt::xtensor<size_t, 1> m_iii; ///< See iii().
+    xt::xtensor<size_t, 1> m_iid; ///< See iid().
     size_t m_nnu; ///< See nnu().
     size_t m_nnp; ///< See nnp().
     size_t m_nni; ///< See nni().
@@ -118,7 +118,7 @@ public:
         m_Cud = m_Cdu.transpose();
         m_Cpd = m_Cdp.transpose();
         m_Cid = m_Cdi.transpose();
-
+        
         GOOSEFEM_ASSERT(static_cast<size_t>(m_Cdi.cols()) == m_nni);
     }
 
@@ -147,25 +147,25 @@ public:
     }
 
     /** @return Dependent DOFs (list of global DOF numbers) [#nnd]. */
-    const array_type::tensor<size_t, 1>& iid() const
+    const xt::xtensor<size_t, 1>& iid() const
     {
         return m_iid;
     }
 
     /** @return Independent DOFs (list of global DOF numbers) [#nni]. */
-    const array_type::tensor<size_t, 1>& iii() const
+    const xt::xtensor<size_t, 1>& iii() const
     {
         return m_iii;
     }
 
     /** @return Independent unknown DOFs (list of global DOF numbers) [#nnu]. */
-    const array_type::tensor<size_t, 1>& iiu() const
+    const xt::xtensor<size_t, 1>& iiu() const
     {
         return m_iiu;
     }
 
     /** @return Independent prescribed DOFs (list of global DOF numbers) [#nnp]. */
-    const array_type::tensor<size_t, 1>& iip() const
+    const xt::xtensor<size_t, 1>& iip() const
     {
         return m_iip;
     }
@@ -186,7 +186,7 @@ public:
         GOOSEFEM_ASSERT(dofval_src.size() == dofval_dest.size()); 
 
 #pragma omp parallel for
-        for (size_t i = m_nnu; i < m_nni; ++i) { // Loop over independent prescribed DOFs
+        for (ptrdiff_t i = m_nnu; i < (ptrdiff_t)m_nni; ++i) { // Loop over independent prescribed DOFs
             dofval_dest(m_iip(i - m_nnu)) = dofval_src(m_iip(i - m_nnu)); // Access using original iip indices
         }
     }
@@ -208,9 +208,9 @@ public:
         dofval_i.fill(0.0);
 
 #pragma omp parallel for
-        for (size_t m = 0; m < this->nnode(); ++m) {
-            for (size_t i = 0; i < this->ndim(); ++i) {
-                size_t global_dof_id = this->dofs()(m, i);
+        for (ptrdiff_t m = 0; m < (ptrdiff_t)this->nnode(); ++m) {
+            for (ptrdiff_t i = 0; i < (ptrdiff_t)this->ndim(); ++i) {
+                ptrdiff_t global_dof_id = (ptrdiff_t)this->dofs()(m, i);
                 if (global_dof_id < m_nni) { 
                     dofval_i(global_dof_id) = nodevec(m, i); 
                 }
@@ -225,7 +225,7 @@ public:
         Eigen::VectorXd Dofval_i_from_d = m_Cid * Dofval_d; 
 
 #pragma omp parallel for
-        for (size_t i = 0; i < m_nni; ++i) {
+        for (ptrdiff_t i = 0; i < (ptrdiff_t)m_nni; ++i) {
             dofval_i(i) += Dofval_i_from_d(i);
         }
     }

@@ -387,7 +387,14 @@ public:
 
         m_control_nodes = nnode + xt::arange<size_t>(ndim);
 
-        m_coor = xt::concatenate(xt::xtuple(coor, xt::zeros<double>({ndim, ndim})));
+        // Create the extra matrix with your custom rows
+        xt::xarray<double> extra = xt::xarray<double>({
+            {0, 0, 0},
+            {10, 0, 0},
+            {10, 0, 10}
+        });
+
+        m_coor = xt::concatenate(xt::xtuple(coor, extra), 0);
         m_dofs = xt::concatenate(xt::xtuple(dofs, m_control_dofs));
     }
 

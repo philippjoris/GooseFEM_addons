@@ -858,8 +858,8 @@ private:
         Eigen::VectorXd dofval = Eigen::VectorXd::Zero(m_ndof, 1);
 
 #pragma omp parallel for
-        for (size_t m = 0; m < m_nnode; ++m) {
-            for (size_t i = 0; i < m_ndim; ++i) {
+        for (ptrdiff_t m = 0; m < (ptrdiff_t)m_nnode; ++m) {
+            for (ptrdiff_t i = 0; i < (ptrdiff_t)m_ndim; ++i) {
                 dofval(m_dofs(m, i)) = nodevec(m, i);
             }
         }
@@ -880,8 +880,8 @@ private:
         GOOSEFEM_ASSERT(xt::has_shape(nodevec, {m_nnode, m_ndim}));
 
 #pragma omp parallel for
-        for (size_t m = 0; m < m_nnode; ++m) {
-            for (size_t i = 0; i < m_ndim; ++i) {
+        for (ptrdiff_t m = 0; m < (ptrdiff_t)m_nnode; ++m) {
+            for (ptrdiff_t i = 0; i < (ptrdiff_t)m_ndim; ++i) {
                 nodevec(m, i) = dofval(m_dofs(m, i));
             }
         }

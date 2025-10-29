@@ -28,7 +28,9 @@ Tom de Geus was financially supported by:
 
 
 ## Installation Guidelines / Help with GMatTensor
-If changes in GMatTensor are not recognized by GooseFEM, then because GooseFEM looks for the GMatTensor files under e.g.C:\Users\20250672\AppData\Local\anaconda3\envs\goose\Library. Often, if GMatTensor is compiled, the files are installed under site-packages.
+If changes in GMatTensor are not recognized by GooseFEM, then because GooseFEM looks for the GMatTensor files under e.g.C:\Users\20250672\AppData\Local\anaconda3\envs\goose\Library. Often, if GMatTensor is compiled, the files are installed under lib/python3.11/site-packages.
+To check if the changes were made in the site-packages folder you can check the date of change:
+ls -lt /home/20250672/.conda/envs/simo_copy/lib/python3.11/site-packages/GMatTensor.
 
 To overcome this, you can force GMatTensor to install under your desired path C:\Users\20250672\AppData\Local\anaconda3\envs\goose\Library by providing this
 path when compiling.

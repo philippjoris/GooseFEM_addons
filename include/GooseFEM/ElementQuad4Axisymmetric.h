@@ -138,11 +138,11 @@ private:
         qtensor.fill(0.0);
 
 #pragma omp parallel for
-        for (size_t e = 0; e < m_nelem; ++e) {
+        for (ptrdiff_t e = 0; e < (ptrdiff_t)m_nelem; ++e) {
 
             auto u = xt::adapt(&elemvec(e, 0, 0), xt::xshape<s_nne, s_ndim>());
 
-            for (size_t q = 0; q < m_nip; ++q) {
+            for (ptrdiff_t q = 0; q < (ptrdiff_t)m_nip; ++q) {
 
                 auto B =
                     xt::adapt(&m_B(e, q, 0, 0, 0, 0), xt::xshape<s_nne, s_tdim, s_tdim, s_tdim>());
@@ -173,11 +173,11 @@ private:
         qtensor.fill(0.0);
 
 #pragma omp parallel for
-        for (size_t e = 0; e < m_nelem; ++e) {
+        for (ptrdiff_t e = 0; e < (ptrdiff_t)m_nelem; ++e) {
 
             auto u = xt::adapt(&elemvec(e, 0, 0), xt::xshape<s_nne, s_ndim>());
 
-            for (size_t q = 0; q < m_nip; ++q) {
+            for (ptrdiff_t q = 0; q < (ptrdiff_t)m_nip; ++q) {
 
                 auto B =
                     xt::adapt(&m_B(e, q, 0, 0, 0, 0), xt::xshape<s_nne, s_tdim, s_tdim, s_tdim>());
@@ -208,11 +208,11 @@ private:
         qtensor.fill(0.0);
 
 #pragma omp parallel for
-        for (size_t e = 0; e < m_nelem; ++e) {
+        for (ptrdiff_t e = 0; e < (ptrdiff_t)m_nelem; ++e) {
 
             auto u = xt::adapt(&elemvec(e, 0, 0), xt::xshape<s_nne, s_ndim>());
 
-            for (size_t q = 0; q < m_nip; ++q) {
+            for (ptrdiff_t q = 0; q < (ptrdiff_t)m_nip; ++q) {
 
                 auto B =
                     xt::adapt(&m_B(e, q, 0, 0, 0, 0), xt::xshape<s_nne, s_tdim, s_tdim, s_tdim>());
@@ -247,19 +247,19 @@ private:
         elemmat.fill(0.0);
 
 #pragma omp parallel for
-        for (size_t e = 0; e < m_nelem; ++e) {
+        for (ptrdiff_t e = 0; e < (ptrdiff_t)m_nelem; ++e) {
 
             auto M = xt::adapt(&elemmat(e, 0, 0), xt::xshape<s_nne * s_ndim, s_nne * s_ndim>());
 
-            for (size_t q = 0; q < m_nip; ++q) {
+            for (ptrdiff_t q = 0; q < (ptrdiff_t)m_nip; ++q) {
 
                 auto N = xt::adapt(&m_N(q, 0), xt::xshape<s_nne>());
                 auto& vol = m_vol(e, q);
                 auto& rho = qscalar(e, q);
 
                 // M(m*ndim+i,n*ndim+i) += N(m) * scalar * N(n) * dV
-                for (size_t m = 0; m < s_nne; ++m) {
-                    for (size_t n = 0; n < s_nne; ++n) {
+                for (ptrdiff_t m = 0; m < (ptrdiff_t)s_nne; ++m) {
+                    for (ptrdiff_t n = 0; n < (ptrdiff_t)s_nne; ++n) {
                         M(m * s_ndim + 0, n * s_ndim + 0) += N(m) * rho * N(n) * vol;
                         M(m * s_ndim + 1, n * s_ndim + 1) += N(m) * rho * N(n) * vol;
                     }
@@ -278,11 +278,11 @@ private:
         elemvec.fill(0.0);
 
 #pragma omp parallel for
-        for (size_t e = 0; e < m_nelem; ++e) {
+        for (ptrdiff_t e = 0; e < (ptrdiff_t)m_nelem; ++e) {
 
             auto f = xt::adapt(&elemvec(e, 0, 0), xt::xshape<s_nne, s_ndim>());
 
-            for (size_t q = 0; q < m_nip; ++q) {
+            for (ptrdiff_t q = 0; q < (ptrdiff_t)m_nip; ++q) {
 
                 auto B =
                     xt::adapt(&m_B(e, q, 0, 0, 0, 0), xt::xshape<s_nne, s_tdim, s_tdim, s_tdim>());
@@ -291,7 +291,7 @@ private:
 
                 // f(m,i) += B(m,i,j,perm(k)) * sig(i,j) * dV
                 // (where perm(0) = 1, perm(2) = 0)
-                for (size_t m = 0; m < s_nne; ++m) {
+                for (ptrdiff_t m = 0; m < (ptrdiff_t)s_nne; ++m) {
                     f(m, 0) += vol * (B(m, 2, 2, 2) * sig(2, 2) + B(m, 0, 2, 2) * sig(0, 2));
                     f(m, 1) += vol * (B(m, 0, 0, 0) * sig(0, 0) + B(m, 1, 1, 0) * sig(1, 1) +
                                       B(m, 2, 0, 0) * sig(2, 0));
@@ -310,11 +310,11 @@ private:
         elemmat.fill(0.0);
 
 #pragma omp parallel for
-        for (size_t e = 0; e < m_nelem; ++e) {
+        for (ptrdiff_t e = 0; e < (ptrdiff_t)m_nelem; ++e) {
 
             auto K = xt::adapt(&elemmat(e, 0, 0), xt::xshape<s_nne * s_ndim, s_nne * s_ndim>());
 
-            for (size_t q = 0; q < m_nip; ++q) {
+            for (ptrdiff_t q = 0; q < (ptrdiff_t)m_nip; ++q) {
 
                 auto B =
                     xt::adapt(&m_B(e, q, 0, 0, 0, 0), xt::xshape<s_nne, s_tdim, s_tdim, s_tdim>());
@@ -325,8 +325,8 @@ private:
 
                 // K(m*s_ndim+perm(c), n*s_ndim+perm(f)) = B(m,a,b,c) * C(a,b,d,e) * B(n,e,d,f) *
                 // vol; (where perm(0) = 1, perm(2) = 0)
-                for (size_t m = 0; m < s_nne; ++m) {
-                    for (size_t n = 0; n < s_nne; ++n) {
+                for (ptrdiff_t m = 0; m < (ptrdiff_t)s_nne; ++m) {
+                    for (ptrdiff_t n = 0; n < (ptrdiff_t)s_nne; ++n) {
                         K(m * s_ndim + 1, n * s_ndim + 1) +=
                             B(m, 0, 0, 0) * C(0, 0, 0, 0) * B(n, 0, 0, 0) * vol;
                         K(m * s_ndim + 1, n * s_ndim + 1) +=
@@ -398,11 +398,11 @@ private:
             array_type::tensor<double, 2> Jinv = xt::empty<double>({2, 2});
 
 #pragma omp for
-            for (size_t e = 0; e < m_nelem; ++e) {
+            for (ptrdiff_t e = 0; e < (ptrdiff_t)m_nelem; ++e) {
 
                 auto x = xt::adapt(&m_x(e, 0, 0), xt::xshape<s_nne, s_ndim>());
 
-                for (size_t q = 0; q < m_nip; ++q) {
+                for (ptrdiff_t q = 0; q < (ptrdiff_t)m_nip; ++q) {
 
                     auto dNxi = xt::adapt(&m_dNxi(q, 0, 0), xt::xshape<s_nne, s_ndim>());
                     auto B = xt::adapt(
@@ -426,7 +426,7 @@ private:
                     double rq = N(0) * x(0, 1) + N(1) * x(1, 1) + N(2) * x(2, 1) + N(3) * x(3, 1);
 
                     // dNx(m,i) += Jinv(i,j) * dNxi(m,j)
-                    for (size_t m = 0; m < s_nne; ++m) {
+                    for (ptrdiff_t m = 0; m < (ptrdiff_t)s_nne; ++m) {
                         // B(m, r, r, r) = dNdx(m,1)
                         B(m, 0, 0, 0) = Jinv(1, 0) * dNxi(m, 0) + Jinv(1, 1) * dNxi(m, 1);
                         // B(m, r, z, z) = dNdx(m,1)

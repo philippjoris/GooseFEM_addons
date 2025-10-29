@@ -638,8 +638,8 @@ private:
         ret.fill(0.0);
 
 #pragma omp parallel for
-        for (size_t m = 0; m < m_nnode; ++m) {
-            for (size_t i = 0; i < m_ndim; ++i) {
+        for (ptrdiff_t m = 0; m < (ptrdiff_t)m_nnode; ++m) {
+            for (ptrdiff_t i = 0; i < (ptrdiff_t)m_ndim; ++i) {
                 ret(m_dofs(m, i)) = arg(m, i);
             }
         }
@@ -688,8 +688,8 @@ private:
         GOOSEFEM_ASSERT(xt::has_shape(ret, this->shape_nodevec()));
 
 #pragma omp parallel for
-        for (size_t m = 0; m < m_nnode; ++m) {
-            for (size_t i = 0; i < m_ndim; ++i) {
+        for (ptrdiff_t m = 0; m < (ptrdiff_t)m_nnode; ++m) {
+            for (ptrdiff_t i = 0; i < (ptrdiff_t)m_ndim; ++i) {
                 ret(m, i) = arg(m_dofs(m, i));
             }
         }
@@ -740,9 +740,9 @@ private:
         GOOSEFEM_ASSERT(conn.dimension() == 2); // Basic check for conn
 
 #pragma omp parallel for
-        for (size_t e = 0; e < conn.shape(0); ++e) { // Use conn.shape(0) for current nelem
-            for (size_t m = 0; m < conn.shape(1); ++m) { // Use conn.shape(1) for current nne
-                for (size_t i = 0; i < m_ndim; ++i) {
+        for (ptrdiff_t e = 0; e < (ptrdiff_t)conn.shape(0); ++e) { // Use conn.shape(0) for current nelem
+            for (ptrdiff_t m = 0; m < (ptrdiff_t)conn.shape(1); ++m) { // Use conn.shape(1) for current nne
+                for (ptrdiff_t i = 0; i < (ptrdiff_t)m_ndim; ++i) {
                     ret(e, m, i) = arg(m_dofs(conn(e, m), i)); // Use conn
                 }
             }
@@ -764,9 +764,9 @@ private:
         GOOSEFEM_ASSERT(conn.dimension() == 2); // Basic check for conn
 
 #pragma omp parallel for
-        for (size_t e = 0; e < conn.shape(0); ++e) { // Use conn.shape(0) for current nelem
-            for (size_t m = 0; m < conn.shape(1); ++m) { // Use conn.shape(1) for current nne
-                for (size_t i = 0; i < m_ndim; ++i) {
+        for (ptrdiff_t e = 0; e < (ptrdiff_t)conn.shape(0); ++e) { // Use conn.shape(0) for current nelem
+            for (ptrdiff_t m = 0; m < (ptrdiff_t)conn.shape(1); ++m) { // Use conn.shape(1) for current nne
+                for (ptrdiff_t i = 0; i < (ptrdiff_t)m_ndim; ++i) {
                     ret(e, m, i) = arg(conn(e, m), i); // Use conn
                 }
             }

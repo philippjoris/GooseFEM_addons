@@ -199,10 +199,10 @@ public:
         xt::pytensor<double, 3> q_delta_u_global = xt::zeros<double>(this->shape_qvector());
 
     #pragma omp parallel for
-        for (size_t e = 0; e < m_nelem; ++e) {
+        for (ptrdiff_t e = 0; e < (ptrdiff_t)m_nelem; ++e) {
             auto u = xt::adapt(&elem_u(e, 0, 0), xt::xshape<s_nne, s_ndim>());
 
-            for (size_t q = 0; q < m_nip; ++q) {
+            for (ptrdiff_t q = 0; q < (ptrdiff_t)m_nip; ++q) {
                 double N0 = m_N(q, 0);
                 double N1 = m_N(q, 1);
                 double N2 = m_N(q, 2);
@@ -226,8 +226,8 @@ public:
         rot_mat.fill(0.0);
 
     #pragma omp parallel for
-        for (size_t e = 0; e < m_nelem; ++e) {
-            for (size_t q = 0; q < m_nip; ++q) {
+        for (ptrdiff_t e = 0; e < (ptrdiff_t)m_nelem; ++e) {
+            for (ptrdiff_t q = 0; q < (ptrdiff_t)m_nip; ++q) {
                 // Use the internally calculated q_delta_u_global
                 auto delta_u = xt::adapt(&q_delta_u_global(e, q, 0), xt::xshape<s_ndim>());
                 auto rot = xt::adapt(&m_rotation_matrix(e, q, 0, 0), xt::xshape<s_ndim, s_ndim>());
@@ -261,10 +261,10 @@ public:
         elem_f.fill(0.0);
 
 #pragma omp parallel for
-        for (size_t e = 0; e < m_nelem; ++e) {
+        for (ptrdiff_t e = 0; e < (ptrdiff_t)m_nelem; ++e) {
             auto f = xt::adapt(&elem_f(e, 0, 0), xt::xshape<s_nne, s_ndim>());
 
-            for (size_t q = 0; q < m_nip; ++q) {
+            for (ptrdiff_t q = 0; q < (ptrdiff_t)m_nip; ++q) {
                 auto tractions = xt::adapt(&q_tractions(e, q, 0), xt::xshape<s_ndim>());
                 auto& dL = m_vol(e, q); 
 
@@ -328,10 +328,10 @@ public:
         elem_K.fill(0.0);
 
 #pragma omp parallel for
-        for (size_t e = 0; e < m_nelem; ++e) {
+        for (ptrdiff_t e = 0; e < (ptrdiff_t)m_nelem; ++e) {
             auto K_elem = xt::adapt(&elem_K(e, 0, 0), xt::xshape<s_nne * s_ndim, s_nne * s_ndim>());
 
-            for (size_t q = 0; q < m_nip; ++q) {
+            for (ptrdiff_t q = 0; q < (ptrdiff_t)m_nip; ++q) {
                 auto D_T_global = xt::adapt(&q_tangent_stiffness_global(e, q, 0, 0), xt::xshape<s_ndim, s_ndim>());
                 auto& dL = m_vol(e, q);
                 // For each integration point 'q'
@@ -363,18 +363,18 @@ public:
                 xt::xtensor_fixed<double, xt::xshape<s_ndim, s_nne * s_ndim>> Temp;
                 Temp.fill(0.0);
 
-                for (size_t i = 0; i < s_ndim; ++i) { 
-                    for (size_t k = 0; k < s_nne * s_ndim; ++k) { 
-                        for (size_t j = 0; j < s_ndim; ++j) {
+                for (ptrdiff_t i = 0; i < (ptrdiff_t)s_ndim; ++i) { 
+                    for (ptrdiff_t k = 0; k < (ptrdiff_t)s_nne * s_ndim; ++k) { 
+                        for (ptrdiff_t j = 0; j < (ptrdiff_t)s_ndim; ++j) {
                             Temp(i, k) += D_T_global(i, j) * B_coh(j, k);
                         }
                     }
                 }
 
-                for (size_t m = 0; m < s_nne * s_ndim; ++m) { 
-                    for (size_t n = 0; n < s_nne * s_ndim; ++n) {
+                for (ptrdiff_t m = 0; m < (ptrdiff_t)s_nne * s_ndim; ++m) { 
+                    for (ptrdiff_t n = 0; n < (ptrdiff_t)s_nne * s_ndim; ++n) {
                         double sum_val = 0.0;
-                        for (size_t p = 0; p < s_ndim; ++p) {
+                        for (ptrdiff_t p = 0; p < (ptrdiff_t)s_ndim; ++p) {
                             sum_val += B_coh(p, m) * Temp(p, n);
                         }
                         K_elem(m, n) += sum_val * dL; 
@@ -414,10 +414,10 @@ private:
             array_type::tensor<double, 1> dX_dxi = xt::empty<double>({s_ndim}); // dX/dxi (X,Y)
 
 #pragma omp for
-            for (size_t e = 0; e < m_nelem; ++e) {
+            for (ptrdiff_t e = 0; e < (ptrdiff_t)m_nelem; ++e) {
                 auto x = xt::adapt(&m_x(e, 0, 0), xt::xshape<s_nne, s_ndim>());
 
-                for (size_t q = 0; q < m_nip; ++q) {
+                for (ptrdiff_t q = 0; q < (ptrdiff_t)m_nip; ++q) {
                     // Get derivatives of shape functions w.r.t. local_xi
                     double dN0_dxi = m_dNxi(q, 0, 0);
                     double dN1_dxi = m_dNxi(q, 1, 0);

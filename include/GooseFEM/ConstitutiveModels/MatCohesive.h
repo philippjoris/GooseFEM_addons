@@ -311,7 +311,7 @@ public:
             auto P_matrix = xt::adapt(m_P_matrix.data(), {m_ndim, m_ndim});      
 
 #pragma omp for        
-            for (size_t i = 0; i < m_size; ++i) {    
+            for (ptrdiff_t i = 0; i < (ptrdiff_t)m_size; ++i) {    
 
                 double Kn = m_Kn.flat(i);
                 double Kt = m_Kt.flat(i);            
@@ -382,7 +382,7 @@ public:
                     C_local(0, 0) = Kn;
                     C_local(0, 1) = 0.0;
                     C_local(1, 0) = 0.0;
-                    for (size_t k = 0; k < m_ndim - 1; ++k) {
+                    for (ptrdiff_t k = 0; k < (ptrdiff_t)m_ndim - 1; ++k) {
                         C_local(k + 1, k + 1) = Kt; 
                     }
                     // m_delta_eff.flat(i) = 0.0; 
@@ -463,7 +463,7 @@ public:
                         C_local(0, 0) = Kn;
                         C_local(0, 1) = 0.0;
                         C_local(1, 0) = 0.0;
-                        for (size_t k = 0; k < m_ndim - 1; ++k) {
+                        for (ptrdiff_t k = 0; k < (ptrdiff_t)m_ndim - 1; ++k) {
                             C_local(k + 1, k + 1) = Kt; 
                         }
                     }
@@ -493,9 +493,9 @@ public:
                 GT::A2_dot_B1(P_matrix.data(), T_local.data(), T.data()); 
 
                 // --- Tangent Calculation ---
-                if (!compute_tangent) {
-                    return;
-                }
+                // if (!compute_tangent) {
+                //     return;
+                // }
                     
                 xt::xtensor_fixed<double, xt::xshape<m_ndim, m_ndim>> P_T;
                 P_T(0,0) = P_matrix(0,0); P_T(0,1) = P_matrix(1,0); 
@@ -705,7 +705,7 @@ public:
             auto P_matrix = xt::adapt(m_P_matrix.data(), {m_ndim, m_ndim});     
 
 #pragma omp for
-            for (size_t i = 0; i < m_size; ++i) {
+            for (ptrdiff_t i = 0; i < (ptrdiff_t)m_size; ++i) {
 
                 double Kn = m_Kn.flat(i);
                 double Kt = m_Kt.flat(i);
@@ -1117,7 +1117,7 @@ public:
             auto P_matrix = xt::adapt(m_P_matrix.data(), {m_ndim, m_ndim});
 
     #pragma omp for
-            for (size_t i = 0; i < m_size; ++i) {
+            for (ptrdiff_t i = 0; i < (ptrdiff_t)m_size; ++i) {
 
                 double Kn = m_Kn.flat(i);
                 double Kt = m_Kt.flat(i);
@@ -1140,8 +1140,8 @@ public:
                 P_matrix.reset_buffer(&m_P_matrix.flat(i * m_ndim * m_ndim), m_ndim * m_ndim);
                 
                 xt::xtensor_fixed<double, xt::xshape<m_ndim, m_ndim>> P_T;
-                for (size_t k = 0; k < m_ndim; k++) {
-                    for(size_t l = 0; l < m_ndim; l++){
+                for (ptrdiff_t k = 0; k < (ptrdiff_t)m_ndim; k++) {
+                    for(ptrdiff_t l = 0; l < (ptrdiff_t)m_ndim; l++){
                         P_T(k,l) = P_matrix(l,k);
                     }
                 }
@@ -1156,19 +1156,19 @@ public:
                 
                 double delta_n = delta[0];
                 double delta_t_sq = 0.0;
-                for (size_t k = 1; k < m_ndim; ++k) {
+                for (ptrdiff_t k = 1; k < (ptrdiff_t)m_ndim; ++k) {
                     delta_t_sq += delta(k) * delta(k);
                 }
                 double delta_t = std::sqrt(delta_t_sq);
 
                 if (delta_n < 0.0) { 
                     T_local(0) = Kn * delta_n;
-                    for (size_t k = 1; k < m_ndim; ++k) {
+                    for (ptrdiff_t k = 1; k < (ptrdiff_t)m_ndim; ++k) {
                         T_local(k) = Kt * delta(k);
                     }   
                     C_local.fill(0.0);
                     C_local(0, 0) = Kn;
-                    for (size_t k = 0; k < m_ndim - 1; ++k) {
+                    for (ptrdiff_t k = 0; k < (ptrdiff_t)m_ndim - 1; ++k) {
                         C_local(k + 1, k + 1) = Kt; 
                     }
                     m_delta_eff.flat(i) = 0.0; 
@@ -1214,7 +1214,7 @@ public:
                     }
 
                     T_local(0) = (1 - current_D_v) * Kn * delta_n;
-                    for (size_t k = 1; k < m_ndim; ++k) {
+                    for (ptrdiff_t k = 1; k < (ptrdiff_t)m_ndim; ++k) {
                         T_local(k) = (1 - current_D_v) * Kt * delta(k);
                     }   
 
@@ -1236,7 +1236,7 @@ public:
 
                     if (current_D_v < 0.0 + 1e-6) {
                         C_local(0, 0) = Kn;
-                        for (size_t k = 0; k < m_ndim - 1; ++k) {
+                        for (ptrdiff_t k = 0; k < (ptrdiff_t)m_ndim - 1; ++k) {
                             C_local(k + 1, k + 1) = Kt;
                         }
                     }
@@ -1251,7 +1251,7 @@ public:
                         C_local(0, 0) = K_n_eff_secant - Kn * delta(0) * d_dv_d_delta_n;
 
                         // Loop over tangential components to calculate full matrix
-                        for (size_t k = 1; k < m_ndim; ++k) {
+                        for (ptrdiff_t k = 1; k < (ptrdiff_t)m_ndim; ++k) {
                             double d_delta_eff_d_delta_tk = (delta_eff > 1e-12) ? beta * delta(k) / delta_eff : 0.0;
                             double d_dv_d_delta_tk = d_current_D_v_d_D_instant_trial * dD_d_delta_eff * d_delta_eff_d_delta_tk;
 
@@ -1263,7 +1263,7 @@ public:
                             C_local(k, k) = K_t_eff_secant - Kt * delta(k) * d_dv_d_delta_tk;
 
                             // Fill tangential off-diagonal terms
-                            for (size_t l = 1; l < m_ndim; ++l) {
+                            for (ptrdiff_t l = 1; l < (ptrdiff_t)m_ndim; ++l) {
                                 if (k != l) {
                                     double d_delta_eff_d_delta_tl = (delta_eff > 1e-12) ? beta * delta(l) / delta_eff : 0.0;
                                     double d_dv_d_delta_tl = d_current_D_v_d_D_instant_trial * dD_d_delta_eff * d_delta_eff_d_delta_tl;

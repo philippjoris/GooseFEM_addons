@@ -411,8 +411,8 @@ private:
         Eigen::VectorXd B_p = m_Apu * X_u + m_App * X_p;
 
 #pragma omp parallel for
-        for (size_t m = 0; m < m_nnode; ++m) {
-            for (size_t i = 0; i < m_ndim; ++i) {
+        for (ptrdiff_t m = 0; m < m_nnode; ++m) {
+            for (ptrdiff_t i = 0; i < m_ndim; ++i) {
                 if (m_part(m, i) < m_nnu) {
                     b(m, i) = B_u(m_part(m, i));
                 }
@@ -436,12 +436,12 @@ private:
         Eigen::VectorXd B_p = m_Apu * X_u + m_App * X_p;
 
 #pragma omp parallel for
-        for (size_t d = 0; d < m_nnu; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)m_nnu; ++d) {
             b(m_iiu(d)) = B_u(d);
         }
 
 #pragma omp parallel for
-        for (size_t d = 0; d < m_nnp; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)m_nnp; ++d) {
             b(m_iip(d)) = B_p(d);
         }
     }
@@ -457,8 +457,8 @@ private:
         Eigen::VectorXd B_p = m_Apu * X_u + m_App * X_p;
 
 #pragma omp parallel for
-        for (size_t m = 0; m < m_nnode; ++m) {
-            for (size_t i = 0; i < m_ndim; ++i) {
+        for (ptrdiff_t m = 0; m < (ptrdiff_t)m_nnode; ++m) {
+            for (ptrdiff_t i = 0; i < (ptrdiff_t)m_ndim; ++i) {
                 if (m_part(m, i) >= m_nnu) {
                     b(m, i) = B_p(m_part(m, i) - m_nnu);
                 }
@@ -477,7 +477,7 @@ private:
         Eigen::VectorXd B_p = m_Apu * X_u + m_App * X_p;
 
 #pragma omp parallel for
-        for (size_t d = 0; d < m_nnp; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)m_nnp; ++d) {
             b(m_iip(d)) = B_p(d);
         }
     }
@@ -506,7 +506,7 @@ private:
         Eigen::VectorXd dofval_u(m_nnu, 1);
 
 #pragma omp parallel for
-        for (size_t d = 0; d < m_nnu; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)m_nnu; ++d) {
             dofval_u(d) = dofval(m_iiu(d));
         }
 
@@ -520,8 +520,8 @@ private:
         Eigen::VectorXd dofval_u = Eigen::VectorXd::Zero(m_nnu, 1);
 
 #pragma omp parallel for
-        for (size_t m = 0; m < m_nnode; ++m) {
-            for (size_t i = 0; i < m_ndim; ++i) {
+        for (ptrdiff_t m = 0; m < (ptrdiff_t)m_nnode; ++m) {
+            for (ptrdiff_t i = 0; i < (ptrdiff_t)m_ndim; ++i) {
                 if (m_part(m, i) < m_nnu) {
                     dofval_u(m_part(m, i)) = nodevec(m, i);
                 }
@@ -538,7 +538,7 @@ private:
         Eigen::VectorXd dofval_p(m_nnp, 1);
 
 #pragma omp parallel for
-        for (size_t d = 0; d < m_nnp; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)m_nnp; ++d) {
             dofval_p(d) = dofval(m_iip(d));
         }
 
@@ -552,8 +552,8 @@ private:
         Eigen::VectorXd dofval_p = Eigen::VectorXd::Zero(m_nnp, 1);
 
 #pragma omp parallel for
-        for (size_t m = 0; m < m_nnode; ++m) {
-            for (size_t i = 0; i < m_ndim; ++i) {
+        for (ptrdiff_t m = 0; m < (ptrdiff_t)m_nnode; ++m) {
+            for (ptrdiff_t i = 0; i < (ptrdiff_t)m_ndim; ++i) {
                 if (m_part(m, i) >= m_nnu) {
                     dofval_p(m_part(m, i) - m_nnu) = nodevec(m, i);
                 }
@@ -637,8 +637,8 @@ private:
         Eigen::VectorXd X_u = m_solver.solve(Eigen::VectorXd(B_u - A.m_Aup * X_p));
 
 #pragma omp parallel for
-        for (size_t m = 0; m < A.m_nnode; ++m) {
-            for (size_t i = 0; i < A.m_ndim; ++i) {
+        for (ptrdiff_t m = 0; m < (ptrdiff_t)A.m_nnode; ++m) {
+            for (ptrdiff_t i = 0; i < (ptrdiff_t)A.m_ndim; ++i) {
                 if (A.m_part(m, i) < A.m_nnu) {
                     x(m, i) = X_u(A.m_part(m, i));
                 }
@@ -655,7 +655,7 @@ private:
         Eigen::VectorXd X_u = m_solver.solve(Eigen::VectorXd(B_u - A.m_Aup * X_p));
 
 #pragma omp parallel for
-        for (size_t d = 0; d < A.m_nnu; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)A.m_nnu; ++d) {
             x(A.m_iiu(d)) = X_u(d);
         }
     }

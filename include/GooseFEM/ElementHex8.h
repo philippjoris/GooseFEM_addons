@@ -254,6 +254,7 @@ public:
     template <class T, class X, class W>
     Quadrature(const T& x, const X& xi, const W& w)
     {
+        pybind11::gil_scoped_acquire gil;  
         m_x = x;
         m_w = w;
         m_xi = xi;
@@ -312,10 +313,14 @@ public:
 
         m_dNx = xt::empty<double>({m_nelem, m_nip, s_nne, s_ndim});
         m_vol = xt::empty<double>(this->shape_qscalar());
-
+        
         this->compute_dN();
     }
 
+    ~Quadrature() {
+        pybind11::gil_scoped_acquire gil;
+    }
+    
 private:
     friend QuadratureBase<Quadrature>;
     friend QuadratureBaseCartesian<Quadrature>;
@@ -329,19 +334,19 @@ private:
         elemmat.fill(0.0);
 
 #pragma omp parallel for
-        for (size_t e = 0; e < m_nelem; ++e) {
+        for (ptrdiff_t e = 0; e < (ptrdiff_t)m_nelem; ++e) {
 
             auto M = xt::adapt(&elemmat(e, 0, 0), xt::xshape<s_nne * s_ndim, s_nne * s_ndim>());
 
-            for (size_t q = 0; q < m_nip; ++q) {
+            for (ptrdiff_t q = 0; q < (ptrdiff_t)m_nip; ++q) {
 
                 auto N = xt::adapt(&m_N(q, 0), xt::xshape<s_nne>());
                 auto& vol = m_vol(e, q);
                 auto& rho = qscalar(e, q);
 
                 // M(m * ndim + i, n * ndim + i) += N(m) * scalar * N(n) * dV
-                for (size_t m = 0; m < s_nne; ++m) {
-                    for (size_t n = 0; n < s_nne; ++n) {
+                for (ptrdiff_t m = 0; m < (ptrdiff_t)s_nne; ++m) {
+                    for (ptrdiff_t n = 0; n < (ptrdiff_t)s_nne; ++n) {
                         M(m * s_ndim + 0, n * s_ndim + 0) += N(m) * rho * N(n) * vol;
                         M(m * s_ndim + 1, n * s_ndim + 1) += N(m) * rho * N(n) * vol;
                         M(m * s_ndim + 2, n * s_ndim + 2) += N(m) * rho * N(n) * vol;
@@ -360,17 +365,17 @@ private:
         elemvec.fill(0.0);
 
 #pragma omp parallel for
-        for (size_t e = 0; e < m_nelem; ++e) {
+        for (ptrdiff_t e = 0; e < (ptrdiff_t)m_nelem; ++e) {
 
             auto f = xt::adapt(&elemvec(e, 0, 0), xt::xshape<s_nne, s_ndim>());
 
-            for (size_t q = 0; q < m_nip; ++q) {
+            for (ptrdiff_t q = 0; q < (ptrdiff_t)m_nip; ++q) {
 
                 auto dNx = xt::adapt(&m_dNx(e, q, 0, 0), xt::xshape<s_nne, s_ndim>());
                 auto sig = xt::adapt(&qtensor(e, q, 0, 0), xt::xshape<s_ndim, s_ndim>());
                 auto& v = m_vol(e, q);
 
-                for (size_t m = 0; m < s_nne; ++m) {
+                for (ptrdiff_t m = 0; m < (ptrdiff_t)s_nne; ++m) {
                     f(m, 0) +=
                         (dNx(m, 0) * sig(0, 0) + dNx(m, 1) * sig(1, 0) + dNx(m, 2) * sig(2, 0)) * v;
                     f(m, 1) +=

@@ -218,10 +218,10 @@ private:
         m_Tdd.clear();
     }
 
-    template <class T_ElemMat, class T_Conn> 
+    template <class T_ElemMat, class T_Conn>
     void assemble_impl(
         const T_ElemMat& elemmat,
-        const T_Conn& conn_elem 
+        const T_Conn& conn_elem
     )
     {
         size_t nelem = elemmat.shape()[0];
@@ -231,75 +231,74 @@ private:
         GOOSEFEM_ASSERT(elemmat.shape()[2] == nnodes_per_elem * m_ndim && "elemmat: Column dimension mismatch (expected num_nodes * ndim).");
         GOOSEFEM_ASSERT(conn_elem.shape()[0] == nelem && "conn_elem: Number of elements mismatch with elemmat.");
 
-        for (size_t e = 0; e < nelem; ++e) { 
-            for (size_t m = 0; m < nnodes_per_elem; ++m) { 
-                for (size_t i = 0; i < m_ndim; ++i) {
-                    size_t global_node_id_m = conn_elem(e, m);
-                    size_t di = m_dofs(global_node_id_m, i); 
+        // Parallel region
+        #pragma omp parallel
+        {
+            // Thread-local triplet storage
+            std::vector<Eigen::Triplet<double>> Tuu_local, Tup_local, Tud_local;
+            std::vector<Eigen::Triplet<double>> Tpu_local, Tpp_local, Tpd_local;
+            std::vector<Eigen::Triplet<double>> Tdu_local, Tdp_local, Tdd_local;
 
-                    for (size_t n = 0; n < nnodes_per_elem; ++n) { 
-                        for (size_t j = 0; j < m_ndim; ++j) {
-                            size_t global_node_id_n = conn_elem(e, n);
-                            size_t dj = m_dofs(global_node_id_n, j); 
+            // Parallelized outer loop
+            #pragma omp for nowait
+            for (ptrdiff_t e = 0; e < (ptrdiff_t)nelem; ++e) {
+                for (ptrdiff_t m = 0; m < (ptrdiff_t)nnodes_per_elem; ++m) {
+                    for (ptrdiff_t i = 0; i < (ptrdiff_t)m_ndim; ++i) {
+                        size_t global_node_id_m = conn_elem(e, m);
+                        size_t di = m_dofs(global_node_id_m, i);
 
-                            double elem_stiff_val = elemmat(e, m * m_ndim + i, n * m_ndim + j);
+                        for (ptrdiff_t n = 0; n < (ptrdiff_t)nnodes_per_elem; ++n) {
+                            for (ptrdiff_t j = 0; j < (ptrdiff_t)m_ndim; ++j) {
+                                size_t global_node_id_n = conn_elem(e, n);
+                                size_t dj = m_dofs(global_node_id_n, j);
 
-                            if (di < m_nnu && dj < m_nnu) {
-                                m_Tuu.push_back(Eigen::Triplet<double>(
-                                    di, dj, elem_stiff_val
-                                ));
-                            }
-                            else if (di < m_nnu && dj < m_nni) { 
-                                m_Tup.push_back(Eigen::Triplet<double>(
-                                    di, dj - m_nnu, elem_stiff_val
-                                ));
-                            }
-                            else if (di < m_nnu) { 
-                                m_Tud.push_back(Eigen::Triplet<double>(
-                                    di, dj - m_nni, elem_stiff_val
-                                ));
-                            }
-                            else if (di < m_nni && dj < m_nnu) { 
-                                m_Tpu.push_back(Eigen::Triplet<double>(
-                                    di - m_nnu, dj, elem_stiff_val
-                                ));
-                            }
-                            else if (di < m_nni && dj < m_nni) { 
-                                m_Tpp.push_back(Eigen::Triplet<double>(
-                                    di - m_nnu,
-                                    dj - m_nnu, 
-                                    elem_stiff_val
-                                ));
-                            }
-                            else if (di < m_nni) { 
-                                m_Tpd.push_back(Eigen::Triplet<double>(
-                                    di - m_nnu,
-                                    dj - m_nni, 
-                                    elem_stiff_val
-                                ));
-                            }
-                            else if (dj < m_nnu) { 
-                                m_Tdu.push_back(Eigen::Triplet<double>(
-                                    di - m_nni, dj, elem_stiff_val
-                                ));
-                            }
-                            else if (dj < m_nni) { 
-                                m_Tdp.push_back(Eigen::Triplet<double>(
-                                    di - m_nni,
-                                    dj - m_nnu, 
-                                    elem_stiff_val
-                                ));
-                            }
-                            else {
-                                m_Tdd.push_back(Eigen::Triplet<double>(
-                                    di - m_nni,
-                                    dj - m_nni, 
-                                    elem_stiff_val
-                                ));
+                                double elem_stiff_val = elemmat(e, m * m_ndim + i, n * m_ndim + j);
+
+                                if (di < m_nnu && dj < m_nnu) {
+                                    Tuu_local.emplace_back(di, dj, elem_stiff_val);
+                                }
+                                else if (di < m_nnu && dj < m_nni) {
+                                    Tup_local.emplace_back(di, dj - m_nnu, elem_stiff_val);
+                                }
+                                else if (di < m_nnu) {
+                                    Tud_local.emplace_back(di, dj - m_nni, elem_stiff_val);
+                                }
+                                else if (di < m_nni && dj < m_nnu) {
+                                    Tpu_local.emplace_back(di - m_nnu, dj, elem_stiff_val);
+                                }
+                                else if (di < m_nni && dj < m_nni) {
+                                    Tpp_local.emplace_back(di - m_nnu, dj - m_nnu, elem_stiff_val);
+                                }
+                                else if (di < m_nni) {
+                                    Tpd_local.emplace_back(di - m_nnu, dj - m_nni, elem_stiff_val);
+                                }
+                                else if (dj < m_nnu) {
+                                    Tdu_local.emplace_back(di - m_nni, dj, elem_stiff_val);
+                                }
+                                else if (dj < m_nni) {
+                                    Tdp_local.emplace_back(di - m_nni, dj - m_nnu, elem_stiff_val);
+                                }
+                                else {
+                                    Tdd_local.emplace_back(di - m_nni, dj - m_nni, elem_stiff_val);
+                                }
                             }
                         }
                     }
                 }
+            }
+
+            // Merge results safely
+            #pragma omp critical
+            {
+                m_Tuu.insert(m_Tuu.end(), Tuu_local.begin(), Tuu_local.end());
+                m_Tup.insert(m_Tup.end(), Tup_local.begin(), Tup_local.end());
+                m_Tud.insert(m_Tud.end(), Tud_local.begin(), Tud_local.end());
+                m_Tpu.insert(m_Tpu.end(), Tpu_local.begin(), Tpu_local.end());
+                m_Tpp.insert(m_Tpp.end(), Tpp_local.begin(), Tpp_local.end());
+                m_Tpd.insert(m_Tpd.end(), Tpd_local.begin(), Tpd_local.end());
+                m_Tdu.insert(m_Tdu.end(), Tdu_local.begin(), Tdu_local.end());
+                m_Tdp.insert(m_Tdp.end(), Tdp_local.begin(), Tdp_local.end());
+                m_Tdd.insert(m_Tdd.end(), Tdd_local.begin(), Tdd_local.end());
             }
         }
     }
@@ -466,7 +465,7 @@ private:
         Eigen::VectorXd dofval_u(m_nnu, 1);
 
 #pragma omp parallel for
-        for (size_t d = 0; d < m_nnu; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)m_nnu; ++d) {
             dofval_u(d) = dofval(m_iiu(d));
         }
 
@@ -480,8 +479,8 @@ private:
         Eigen::VectorXd dofval_u = Eigen::VectorXd::Zero(m_nnu, 1);
 
 #pragma omp parallel for
-        for (size_t m = 0; m < m_nnode; ++m) {
-            for (size_t i = 0; i < m_ndim; ++i) {
+        for (ptrdiff_t m = 0; m < (ptrdiff_t)m_nnode; ++m) {
+            for (ptrdiff_t i = 0; i < (ptrdiff_t)m_ndim; ++i) {
                 if (m_dofs(m, i) < m_nnu) {
                     dofval_u(m_dofs(m, i)) = nodevec(m, i);
                 }
@@ -498,7 +497,7 @@ private:
         Eigen::VectorXd dofval_p(m_nnp, 1);
 
 #pragma omp parallel for
-        for (size_t d = 0; d < m_nnp; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)m_nnp; ++d) {
             dofval_p(d) = dofval(m_iip(d));
         }
 
@@ -512,8 +511,8 @@ private:
         Eigen::VectorXd dofval_p = Eigen::VectorXd::Zero(m_nnp, 1);
 
 #pragma omp parallel for
-        for (size_t m = 0; m < m_nnode; ++m) {
-            for (size_t i = 0; i < m_ndim; ++i) {
+        for (ptrdiff_t m = 0; m < (ptrdiff_t)m_nnode; ++m) {
+            for (ptrdiff_t i = 0; i < (ptrdiff_t)m_ndim; ++i) {
                 if (m_dofs(m, i) >= m_nnu && m_dofs(m, i) < m_nni) {
                     dofval_p(m_dofs(m, i) - m_nnu) = nodevec(m, i);
                 }
@@ -530,7 +529,7 @@ private:
         Eigen::VectorXd dofval_d(m_nnd, 1);
 
 #pragma omp parallel for
-        for (size_t d = 0; d < m_nnd; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)m_nnd; ++d) {
             dofval_d(d) = dofval(m_iip(d));
         }
 
@@ -544,8 +543,8 @@ private:
         Eigen::VectorXd dofval_d = Eigen::VectorXd::Zero(m_nnd, 1);
 
 #pragma omp parallel for
-        for (size_t m = 0; m < m_nnode; ++m) {
-            for (size_t i = 0; i < m_ndim; ++i) {
+        for (ptrdiff_t m = 0; m < (ptrdiff_t)m_nnode; ++m) {
+            for (ptrdiff_t i = 0; i < (ptrdiff_t)m_ndim; ++i) {
                 if (m_dofs(m, i) >= m_nni) {
                     dofval_d(m_dofs(m, i) - m_nni) = nodevec(m, i);
                 }
@@ -572,7 +571,7 @@ private:
  *
  * \f$ x_d = C_{di} * x_i \f$
  */
-template <class Solver = Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>>>
+template <class Solver = Eigen::ConjugateGradient<Eigen::SparseMatrix<double>>>
 class MatrixPartitionedTyingsSolver
     : public MatrixSolverBase<MatrixPartitionedTyingsSolver<Solver>>,
       public MatrixSolverPartitionedBase<MatrixPartitionedTyingsSolver<Solver>> {
@@ -582,6 +581,15 @@ private:
 
 public:
     MatrixPartitionedTyingsSolver() = default;
+
+    // Optional: setters for iterative solver parameters
+    void setMaxIterations(int maxIter) {
+        m_solver.setMaxIterations(maxIter);
+    }
+
+    void setTolerance(double tol) {
+        m_solver.setTolerance(tol);
+    }
 
 private:
     template <class T>
@@ -596,11 +604,15 @@ private:
         B_u += A.m_Cud * B_d;
 
         Eigen::VectorXd X_u = m_solver.solve(Eigen::VectorXd(B_u - A.m_ACup * X_p));
+        if (m_solver.info() != Eigen::Success) {
+            throw std::runtime_error("ConjugateGradient solver failed to converge in solve_nodevec_impl");
+        }
+
         Eigen::VectorXd X_d = A.m_Cdu * X_u + A.m_Cdp * X_p;
 
 #pragma omp parallel for
-        for (size_t m = 0; m < A.m_nnode; ++m) {
-            for (size_t i = 0; i < A.m_ndim; ++i) {
+        for (ptrdiff_t m = 0; m < (ptrdiff_t)A.m_nnode; ++m) {
+            for (ptrdiff_t i = 0; i < (ptrdiff_t)A.m_ndim; ++i) {
                 if (A.m_dofs(m, i) < A.m_nnu) {
                     x(m, i) = X_u(A.m_dofs(m, i));
                 }
@@ -621,31 +633,24 @@ private:
         Eigen::VectorXd X_p = A.AsDofs_p(x);
 
         Eigen::VectorXd X_u = m_solver.solve(Eigen::VectorXd(B_u - A.m_ACup * X_p));
+        if (m_solver.info() != Eigen::Success) {
+            throw std::runtime_error("ConjugateGradient solver failed to converge in solve_dofval_impl");
+        }
+
         Eigen::VectorXd X_d = A.m_Cdu * X_u + A.m_Cdp * X_p;
 
 #pragma omp parallel for
-        for (size_t d = 0; d < A.m_nnu; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)A.m_nnu; ++d) {
             x(A.m_iiu(d)) = X_u(d);
         }
 
 #pragma omp parallel for
-        for (size_t d = 0; d < A.m_nnd; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)A.m_nnd; ++d) {
             x(A.m_iid(d)) = X_d(d);
         }
     }
 
 public:
-    /**
-     * Same as
-     * Solve(MatrixPartitionedTyings&, const array_type::tensor<double, 2>&, const
-     * array_type::tensor<double, 2>&), but with partitioned input and output.
-     *
-     * @param A sparse matrix, see MatrixPartitionedTyings().
-     * @param b_u unknown dofval [nnu].
-     * @param b_d dependent dofval [nnd].
-     * @param x_p prescribed dofval [nnp]
-     * @return x_u unknown dofval [nnu].
-     */
     array_type::tensor<double, 1> Solve_u(
         MatrixPartitionedTyings& A,
         const array_type::tensor<double, 1>& b_u,
@@ -658,18 +663,6 @@ public:
         return x_u;
     }
 
-    /**
-     * Same as
-     * Solve_u(MatrixPartitionedTyings&, const array_type::tensor<double, 1>&, const
-     * array_type::tensor<double, 1>&, const array_type::tensor<double, 1>&), but writing to
-     * pre-allocated output.
-     *
-     * @param A sparse matrix, see MatrixPartitionedTyings().
-     * @param b_u unknown dofval [nnu].
-     * @param b_d dependent dofval [nnd].
-     * @param x_p prescribed dofval [nnp]
-     * @param x_u (overwritten) unknown dofval [nnu].
-     */
     void solve_u(
         MatrixPartitionedTyings& A,
         const array_type::tensor<double, 1>& b_u,
@@ -691,15 +684,16 @@ public:
                 Eigen::Map<const Eigen::VectorXd>(b_u.data(), b_u.size()) -
                 A.m_ACup * Eigen::Map<const Eigen::VectorXd>(x_p.data(), x_p.size())
             ));
+
+        if (m_solver.info() != Eigen::Success) {
+            throw std::runtime_error("ConjugateGradient solver failed to converge in solve_u");
+        }
     }
 
 private:
     Solver m_solver; ///< solver
     bool m_factor = true; ///< signal to force factorization
 
-    /**
-     * compute inverse (evaluated by "solve")
-     */
     void factorize(MatrixPartitionedTyings& A)
     {
         if (!A.m_changed && !m_factor) {
@@ -710,13 +704,8 @@ private:
 
         A.m_ACup = A.m_Aup + A.m_Aud * A.m_Cdp + A.m_Cud * A.m_Adp + A.m_Cud * A.m_Add * A.m_Cdp;
 
-        // A.m_ACpu = A.m_Apu + A.m_Apd * A.m_Cdu + A.m_Cpd * A.m_Adu
-        //     + A.m_Cpd * A.m_Add * A.m_Cdu;
-
-        // A.m_ACpp = A.m_App + A.m_Apd * A.m_Cdp + A.m_Cpd * A.m_Adp
-        //     + A.m_Cpd * A.m_Add * A.m_Cdp;
-
         m_solver.compute(A.m_ACuu);
+
         m_factor = false;
         A.m_changed = false;
     }

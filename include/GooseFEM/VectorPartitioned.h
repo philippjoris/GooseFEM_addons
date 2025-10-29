@@ -170,8 +170,8 @@ public:
 
         // Access using the 2D partitioned map (node, dim) -> partitioned_id
 #pragma omp parallel for
-        for (size_t m = 0; m < this->nnode(); ++m) {
-            for (size_t i = 0; i < this->ndim(); ++i) {
+        for (ptrdiff_t m = 0; m < (ptrdiff_t)this->nnode(); ++m) {
+            for (ptrdiff_t i = 0; i < (ptrdiff_t)this->ndim(); ++i) {
                 if (m_part_node_view(m, i) < m_nnu) { // If this DOF is unconstrained
                     nodevec_dest(m, i) = nodevec_src(m, i);
                 }
@@ -218,8 +218,8 @@ public:
 
         // Access using the 2D partitioned map (node, dim) -> partitioned_id
 #pragma omp parallel for
-        for (size_t m = 0; m < this->nnode(); ++m) {
-            for (size_t i = 0; i < this->ndim(); ++i) {
+        for (ptrdiff_t m = 0; m < (ptrdiff_t)this->nnode(); ++m) {
+            for (ptrdiff_t i = 0; i < (ptrdiff_t)this->ndim(); ++i) {
                 if (m_part_node_view(m, i) >= m_nnu) { // If this DOF is prescribed
                     nodevec_dest(m, i) = nodevec_src(m, i);
                 }
@@ -264,12 +264,12 @@ public:
         dofval.fill(0.0); // Initialize to zero before filling
 
 #pragma omp parallel for
-        for (size_t d = 0; d < m_nnu; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)m_nnu; ++d) {
             dofval(m_iiu(d)) = dofval_u(d);
         }
 
 #pragma omp parallel for
-        for (size_t d = 0; d < m_nnp; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)m_nnp; ++d) {
             dofval(m_iip(d)) = dofval_p(d);
         }
     }
@@ -313,9 +313,9 @@ public:
         GOOSEFEM_ASSERT(xt::has_shape(nodevec, {this->nnode(), this->ndim()}));
 
 #pragma omp parallel for
-        for (size_t m = 0; m < this->nnode(); ++m) {
-            for (size_t i = 0; i < this->ndim(); ++i) {
-                size_t partitioned_id = m_part_node_view(m, i);
+        for (ptrdiff_t m = 0; m < (ptrdiff_t)this->nnode(); ++m) {
+            for (ptrdiff_t i = 0; i < (ptrdiff_t)this->ndim(); ++i) {
+                ptrdiff_t partitioned_id = m_part_node_view(m, i);
                 if (partitioned_id < m_nnu) {
                     nodevec(m, i) = dofval_u(partitioned_id);
                 }
@@ -372,11 +372,11 @@ public:
         GOOSEFEM_ASSERT(conn.dimension() == 2); // Ensure conn is 2D
 
 #pragma omp parallel for
-        for (size_t e = 0; e < conn.shape(0); ++e) { // Use conn.shape(0) for nelem
-            for (size_t m = 0; m < conn.shape(1); ++m) { // Use conn.shape(1) for nne
-                for (size_t i = 0; i < this->ndim(); ++i) {
-                    size_t global_dof_id = this->dofs()(conn(e, m), i); // Get global DOF ID
-                    size_t partitioned_id = m_part1d(global_dof_id); // Map to partitioned ID
+        for (ptrdiff_t e = 0; e < (ptrdiff_t)conn.shape(0); ++e) { // Use conn.shape(0) for nelem
+            for (ptrdiff_t m = 0; m < (ptrdiff_t)conn.shape(1); ++m) { // Use conn.shape(1) for nne
+                for (ptrdiff_t i = 0; i < (ptrdiff_t)this->ndim(); ++i) {
+                    ptrdiff_t global_dof_id = this->dofs()(conn(e, m), i); // Get global DOF ID
+                    ptrdiff_t partitioned_id = m_part1d(global_dof_id); // Map to partitioned ID
 
                     if (partitioned_id < m_nnu) {
                         elemvec(e, m, i) = dofval_u(partitioned_id);
@@ -415,7 +415,7 @@ public:
         GOOSEFEM_ASSERT(dofval_u.size() == m_nnu);
 
 #pragma omp parallel for
-        for (size_t d = 0; d < m_nnu; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)m_nnu; ++d) {
             dofval_u(d) = dofval(m_iiu(d));
         }
     }
@@ -448,8 +448,8 @@ public:
         dofval_u.fill(0.0); // Initialize before filling
 
 #pragma omp parallel for
-        for (size_t m = 0; m < this->nnode(); ++m) {
-            for (size_t i = 0; i < this->ndim(); ++i) {
+        for (ptrdiff_t m = 0; m < (ptrdiff_t)this->nnode(); ++m) {
+            for (ptrdiff_t i = 0; i < (ptrdiff_t)this->ndim(); ++i) {
                 if (m_part_node_view(m, i) < m_nnu) {
                     dofval_u(m_part_node_view(m, i)) = nodevec(m, i);
                 }
@@ -531,7 +531,7 @@ public:
         GOOSEFEM_ASSERT(dofval_p.size() == m_nnp);
 
 #pragma omp parallel for
-        for (size_t d = 0; d < m_nnp; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)m_nnp; ++d) {
             dofval_p(d) = dofval(m_iip(d));
         }
     }
@@ -564,8 +564,8 @@ public:
         dofval_p.fill(0.0); // Initialize before filling
 
 #pragma omp parallel for
-        for (size_t m = 0; m < this->nnode(); ++m) {
-            for (size_t i = 0; i < this->ndim(); ++i) {
+        for (ptrdiff_t m = 0; m < (ptrdiff_t)this->nnode(); ++m) {
+            for (ptrdiff_t i = 0; i < (ptrdiff_t)this->ndim(); ++i) {
                 if (m_part_node_view(m, i) >= m_nnu) {
                     dofval_p(m_part_node_view(m, i) - m_nnu) = nodevec(m, i);
                 }

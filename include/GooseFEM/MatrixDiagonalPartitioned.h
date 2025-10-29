@@ -147,12 +147,12 @@ private:
         ret.fill(0.0);
 
 #pragma omp parallel for
-        for (size_t d = 0; d < m_nnu; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)m_nnu; ++d) {
             ret(m_iiu(d), m_iiu(d)) = m_Auu(d);
         }
 
 #pragma omp parallel for
-        for (size_t d = 0; d < m_nnp; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)m_nnp; ++d) {
             ret(m_iip(d), m_iip(d)) = m_App(d);
         }
     }
@@ -167,12 +167,12 @@ public:
         GOOSEFEM_ASSERT(A.size() == m_ndof);
 
 #pragma omp parallel for
-        for (size_t d = 0; d < m_nnu; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)m_nnu; ++d) {
             m_Auu(d) = A(m_iiu(d));
         }
 
 #pragma omp parallel for
-        for (size_t d = 0; d < m_nnp; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)m_nnp; ++d) {
             m_App(d) = A(m_iip(d));
         }
 
@@ -188,12 +188,12 @@ public:
         array_type::tensor<double, 1> ret = xt::zeros<double>({m_ndof});
 
 #pragma omp parallel for
-        for (size_t d = 0; d < m_nnu; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)m_nnu; ++d) {
             ret(m_iiu(d)) = m_Auu(d);
         }
 
 #pragma omp parallel for
-        for (size_t d = 0; d < m_nnp; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)m_nnp; ++d) {
             ret(m_iip(d)) = m_App(d);
         }
 
@@ -236,8 +236,8 @@ private:
         GOOSEFEM_ASSERT(xt::has_shape(b, {m_nnode, m_ndim}));
 
 #pragma omp parallel for
-        for (size_t m = 0; m < m_nnode; ++m) {
-            for (size_t i = 0; i < m_ndim; ++i) {
+        for (ptrdiff_t m = 0; m < (ptrdiff_t)m_nnode; ++m) {
+            for (ptrdiff_t i = 0; i < (ptrdiff_t)m_ndim; ++i) {
 
                 size_t d = m_part(m, i);
 
@@ -258,12 +258,12 @@ private:
         GOOSEFEM_ASSERT(b.size() == m_ndof);
 
 #pragma omp parallel for
-        for (size_t d = 0; d < m_nnu; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)m_nnu; ++d) {
             b(m_iiu(d)) = m_Auu(d) * x(m_iiu(d));
         }
 
 #pragma omp parallel for
-        for (size_t d = 0; d < m_nnp; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)m_nnp; ++d) {
             b(m_iip(d)) = m_App(d) * x(m_iip(d));
         }
     }
@@ -302,7 +302,7 @@ public:
         GOOSEFEM_ASSERT(b_u.size() == m_nnu);
 
 #pragma omp parallel for
-        for (size_t d = 0; d < m_nnu; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)m_nnu; ++d) {
             b_u(d) = m_Auu(d) * x_u(d);
         }
     }
@@ -340,7 +340,7 @@ public:
         GOOSEFEM_ASSERT(b_p.size() == m_nnp);
 
 #pragma omp parallel for
-        for (size_t d = 0; d < m_nnp; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)m_nnp; ++d) {
             b_p(d) = m_App(d) * x_p(d);
         }
     }
@@ -355,8 +355,8 @@ private:
         this->factorize();
 
 #pragma omp parallel for
-        for (size_t m = 0; m < m_nnode; ++m) {
-            for (size_t i = 0; i < m_ndim; ++i) {
+        for (ptrdiff_t m = 0; m < (ptrdiff_t)m_nnode; ++m) {
+            for (ptrdiff_t i = 0; i < (ptrdiff_t)m_ndim; ++i) {
                 if (m_part(m, i) < m_nnu) {
                     x(m, i) = m_inv_uu(m_part(m, i)) * b(m, i);
                 }
@@ -373,7 +373,7 @@ private:
         this->factorize();
 
 #pragma omp parallel for
-        for (size_t d = 0; d < m_nnu; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)m_nnu; ++d) {
             x(m_iiu(d)) = m_inv_uu(d) * b(m_iiu(d));
         }
     }
@@ -412,7 +412,7 @@ public:
         this->factorize();
 
 #pragma omp parallel for
-        for (size_t d = 0; d < m_nnu; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)m_nnu; ++d) {
             x_u(d) = m_inv_uu(d) * b_u(d);
         }
     }
@@ -425,8 +425,8 @@ private:
         GOOSEFEM_ASSERT(xt::has_shape(b, {m_nnode, m_ndim}));
 
 #pragma omp parallel for
-        for (size_t m = 0; m < m_nnode; ++m) {
-            for (size_t i = 0; i < m_ndim; ++i) {
+        for (ptrdiff_t m = 0; m < (ptrdiff_t)m_nnode; ++m) {
+            for (ptrdiff_t i = 0; i < (ptrdiff_t)m_ndim; ++i) {
                 if (m_part(m, i) >= m_nnu) {
                     b(m, i) = m_App(m_part(m, i) - m_nnu) * x(m, i);
                 }
@@ -441,7 +441,7 @@ private:
         GOOSEFEM_ASSERT(b.size() == m_ndof);
 
 #pragma omp parallel for
-        for (size_t d = 0; d < m_nnp; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)m_nnp; ++d) {
             b(m_iip(d)) = m_App(d) * x(m_iip(d));
         }
     }
@@ -459,7 +459,7 @@ private:
         GOOSEFEM_ASSERT(b_p.size() == m_nnp);
 
 #pragma omp parallel for
-        for (size_t d = 0; d < m_nnp; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)m_nnp; ++d) {
             b_p(d) = m_App(d) * x_p(d);
         }
     }
@@ -487,7 +487,7 @@ private:
         }
 
 #pragma omp parallel for
-        for (size_t d = 0; d < m_nnu; ++d) {
+        for (ptrdiff_t d = 0; d < (ptrdiff_t)m_nnu; ++d) {
             m_inv_uu(d) = 1.0 / m_Auu(d);
         }
 

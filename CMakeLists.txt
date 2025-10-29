@@ -43,8 +43,20 @@ endif()
 # ==========
 
 find_package(xtensor REQUIRED)
+find_package(OpenMP REQUIRED)
+
+if(OpenMP_FOUND)
+    message(STATUS "OpenMP support is enabled")
+else()
+    message(WARNING "OpenMP support was not found, compiling without OpenMP.")
+endif()
 
 add_library(${PROJECT_NAME} INTERFACE)
+
+if(OpenMP_FOUND)
+    target_compile_features(${PROJECT_NAME} INTERFACE ${OpenMP_CXX_FEATURES})
+    target_link_libraries(${PROJECT_NAME} INTERFACE OpenMP::OpenMP_CXX)
+endif()
 
 target_include_directories(${PROJECT_NAME} INTERFACE
     $<INSTALL_INTERFACE:include>
@@ -139,6 +151,11 @@ if(BUILD_PYTHON OR BUILD_ALL)
     endif()
 
     pybind11_add_module(${PYPROJECT_NAME} python/main.cpp)
+
+    if(OpenMP_FOUND)
+        target_compile_features(${PYPROJECT_NAME} PRIVATE ${OpenMP_CXX_FEATURES})
+        target_link_libraries(${PYPROJECT_NAME} PRIVATE OpenMP::OpenMP_CXX)
+    endif()
 
     target_compile_definitions(${PYPROJECT_NAME} PUBLIC VERSION_INFO=${PROJECT_VERSION})
     target_link_libraries(${PYPROJECT_NAME} PUBLIC ${PROJECT_NAME} xtensor-python)
