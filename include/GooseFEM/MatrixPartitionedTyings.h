@@ -530,7 +530,7 @@ private:
 
 #pragma omp parallel for
         for (ptrdiff_t d = 0; d < (ptrdiff_t)m_nnd; ++d) {
-            dofval_d(d) = dofval(m_iip(d));
+            dofval_d(d) = dofval(m_iid(d));
         }
 
         return dofval_d;
