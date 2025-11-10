@@ -530,7 +530,7 @@ private:
 
 #pragma omp parallel for
         for (ptrdiff_t d = 0; d < (ptrdiff_t)m_nnd; ++d) {
-            dofval_d(d) = dofval(m_iip(d));
+            dofval_d(d) = dofval(m_iid(d));
         }
 
         return dofval_d;
@@ -556,7 +556,7 @@ private:
 };
 
 /**
- * Solver for MatrixPartitionedTyings().
+ * Iterative solver for MatrixPartitionedTyings() using Eigen Library.
  * This solver class can be used to solve for multiple right-hand-sides using one factorisation.
  *
  * Solving proceeds as follows:

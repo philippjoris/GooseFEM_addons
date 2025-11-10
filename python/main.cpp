@@ -30,6 +30,7 @@
 #include "MatrixDiagonalPartitioned.hpp"
 #include "MatrixPartitioned.hpp"
 #include "MatrixPartitionedTyings.hpp"
+#include "MatrixPartitionedTyings_PETSc.hpp"
 #include "Mesh.hpp"
 #include "MeshCohesive.hpp"
 #include "MeshCohesiveQuad4.hpp"
@@ -37,6 +38,7 @@
 #include "MeshHex8.hpp"
 #include "MeshQuad4.hpp"
 #include "MeshTri3.hpp"
+#include "SolverPartitionedTyings_PETSc.hpp"
 #include "TyingsPeriodic.hpp"
 #include "Vector.hpp"
 #include "VectorPartitioned.hpp"
@@ -92,6 +94,8 @@ PYBIND11_MODULE(_GooseFEM, m)
     init_MatrixPartitionedTyings(m);
     init_MatrixDiagonal(m);
     init_MatrixDiagonalPartitioned(m);
+    init_MatrixPartitionedTyings_PETSc(m);
+    init_SolverPartitionedTyings_PETSc(m);
 
     // ----------------
     // GooseFEM.ConstitutiveModels.Cohesive2d
