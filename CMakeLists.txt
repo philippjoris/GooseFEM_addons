@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.18..3.21)
 
 project(GooseFEM)
 
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/Modules")
+
 string(TOUPPER "${PROJECT_NAME}" PROJECT_NAME_UPPER)
 
 # Command-line options
@@ -41,15 +43,18 @@ endif()
 
 # Set target
 # ==========
+set(CMAKE_PREFIX_PATH $ENV{CONDA_PREFIX})
 
 find_package(xtensor REQUIRED)
 find_package(OpenMP REQUIRED)
+find_package(PETSc REQUIRED)
 
 if(OpenMP_FOUND)
     message(STATUS "OpenMP support is enabled")
 else()
     message(WARNING "OpenMP support was not found, compiling without OpenMP.")
 endif()
+
 
 add_library(${PROJECT_NAME} INTERFACE)
 
@@ -60,9 +65,10 @@ endif()
 
 target_include_directories(${PROJECT_NAME} INTERFACE
     $<INSTALL_INTERFACE:include>
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+)
 
-target_link_libraries(${PROJECT_NAME} INTERFACE xtensor)
+target_link_libraries(${PROJECT_NAME} INTERFACE xtensor PETSc::PETSc)
 
 target_compile_definitions(${PROJECT_NAME} INTERFACE
     ${PROJECT_NAME_UPPER}_VERSION="${PROJECT_VERSION}")

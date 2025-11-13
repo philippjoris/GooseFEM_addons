@@ -1,12 +1,12 @@
-#ifndef GOOSEFEM_PETSCSOLVERPARTITIONEDTYINGS_H
-#define GOOSEFEM_PETSCSOLVERPARTITIONEDTYINGS_H
+#ifndef GOOSEFEM_SOLVERPARTITIONEDTYINGS_PETSC_H
+#define GOOSEFEM_SOLVERPARTITIONEDTYINGS_PETSC_H
 
 #include <petscksp.h>
 #include <stdexcept>
 #include <vector>
-#include "PETScMatrix.h" // Assumed parent class for general partitioning context
 #include <Eigen/Sparse> // Used for inputting Cdu/Cdp from Eigen
 #include "config.h" // For GOOSEFEM_ASSERT, array_type
+#include "MatrixPartitionedTyings_PETSc.h"
 
 namespace GooseFEM {
 
@@ -21,6 +21,16 @@ private:
             KSPDestroy(&m_ksp);
             m_ksp = nullptr;
         }
+    }
+
+    PetscErrorCode CreatePetscVecFromArray(const xt::pytensor<double, 2>& arr, Vec* outVec)
+    {
+        PetscErrorCode ierr;
+        PetscInt n = arr.shape(0) * arr.shape(1); // total number of DOFs
+        PetscScalar* data = const_cast<PetscScalar*>(arr.data()); // PETSc API is non-const
+
+        ierr = VecCreateSeqWithArray(PETSC_COMM_SELF, 1, n, data, outVec); CHKERRQ(ierr);
+        return ierr;
     }
 
 public:
@@ -42,12 +52,12 @@ public:
 
         // --- Extract submatrices from the global system matrix A ---
         Mat A_uu = nullptr, A_ud = nullptr, A_du = nullptr, A_dd = nullptr;
-        ierr = MatGetSubMatrix(A.m_A, A.m_is_u, A.m_is_u, MAT_INITIAL_MATRIX, &A_uu); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = MatGetSubMatrix(A.m_A, A.m_is_u, A.m_is_d, MAT_INITIAL_MATRIX, &A_ud); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = MatGetSubMatrix(A.m_A, A.m_is_d, A.m_is_u, MAT_INITIAL_MATRIX, &A_du); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = MatGetSubMatrix(A.m_A, A.m_is_d, A.m_is_d, MAT_INITIAL_MATRIX, &A_dd); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatCreateSubMatrix(A.m_A, A.m_IS_u, A.m_IS_u, MAT_INITIAL_MATRIX, &A_uu); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatCreateSubMatrix(A.m_A, A.m_IS_u, A.m_IS_d, MAT_INITIAL_MATRIX, &A_ud); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatCreateSubMatrix(A.m_A, A.m_IS_d, A.m_IS_u, MAT_INITIAL_MATRIX, &A_du); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatCreateSubMatrix(A.m_A, A.m_IS_d, A.m_IS_d, MAT_INITIAL_MATRIX, &A_dd); CHKERRABORT(PETSC_COMM_WORLD, ierr);
 
-        // --- 2️⃣ Compute transpose of C_du once ---
+        // --- Compute transpose of C_du once ---
         Mat C_du_T = nullptr;
         ierr = MatTranspose(A.m_Cdu, MAT_INITIAL_MATRIX, &C_du_T); CHKERRABORT(PETSC_COMM_WORLD, ierr);
 
@@ -65,8 +75,8 @@ public:
 
         // --- Compute condensed coupling matrix A'_up = A_up + A_ud*C_dp + C_du^T*A_dp + C_du^T*A_dd*C_dp ---
         Mat A_up = nullptr, A_dp = nullptr;
-        ierr = MatGetSubMatrix(A.m_A, A.m_is_u, A.m_is_p, MAT_INITIAL_MATRIX, &A_up); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = MatGetSubMatrix(A.m_A, A.m_is_d, A.m_is_p, MAT_INITIAL_MATRIX, &A_dp); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatCreateSubMatrix(A.m_A, A.m_IS_u, A.m_IS_p, MAT_INITIAL_MATRIX, &A_up); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatCreateSubMatrix(A.m_A, A.m_IS_d, A.m_IS_p, MAT_INITIAL_MATRIX, &A_dp); CHKERRABORT(PETSC_COMM_WORLD, ierr);
 
         Mat tempA1 = nullptr, tempA2 = nullptr, tempA3 = nullptr, inter2 = nullptr;
         ierr = MatMatMult(A_ud, A.m_Cdp, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &tempA1); CHKERRABORT(PETSC_COMM_WORLD, ierr);
@@ -102,10 +112,52 @@ public:
     }
 
     template <class T>
-    void solve(MatrixPartitionedTyings_PETSc& A, const T& b, T& x)
+    void solve(MatrixPartitionedTyings_PETSc& A, const T& b_py, T& x_py)
     {
+        PetscErrorCode ierr;
+        
+        Vec b;
+        CreatePetscVecFromArray(b_py, &b);
+
+        // --- 2. Create global nodal vector x of size m_ndof ---
+        Vec x;
+        PetscInt n = (PetscInt)x_py.size();
+        ierr = VecCreateSeq(PETSC_COMM_SELF, n, &x); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = VecPlaceArray(x, x_py.data()); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+
+        // --- 3. Fill x with values from x_py at correct prescribed DOF indices ---
+        // Loop like Eigen: global DOF indices = m_dofs(m,i)
+        std::vector<PetscInt> idx;          // global indices in PETSc
+        std::vector<PetscScalar> vals;      // corresponding values
+
+        for (size_t m = 0; m < A.m_nnode; ++m) {
+            for (size_t i = 0; i < A.m_ndim; ++i) {
+                PetscInt gdof = (PetscInt)A.m_dofs(m,i);
+                // Only insert prescribed DOFs (same condition as Eigen)
+                if (gdof >= (PetscInt)A.m_nnu && gdof < (PetscInt)A.m_nni) {
+                    idx.push_back(gdof);
+                    vals.push_back(x_py(m,i));
+                }
+            }
+        }
+
+        ierr = VecSetValues(x, idx.size(), idx.data(), vals.data(), INSERT_VALUES); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = VecAssemblyBegin(x); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = VecAssemblyEnd(x); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+
         // Factorize (build condensed matrices if needed)
         this->factorize(A);
+        
+
+        // ---- PRINT STATEMENT ----
+        MatInfo info;
+        MatGetInfo(A.m_ACuu, MAT_LOCAL, &info);
+        PetscPrintf(PETSC_COMM_WORLD, "A_ACuu nnz = %g\n", info.nz_used);
+
+        PetscScalar max_val;
+        VecMax(x, NULL, &max_val);
+        PetscPrintf(PETSC_COMM_WORLD, "Max of x = %g\n", PetscRealPart(max_val));
+        // ---- PRINT STATEMENT ----        
 
         // Extract sub-vectors (views)
         Vec B_u, B_d, X_p;
@@ -119,8 +171,19 @@ public:
         ierr = VecDuplicate(B_u, &rhs); CHKERRABORT(PETSC_COMM_WORLD, ierr); // Reuse the memory for RHS
         ierr = VecDuplicate(B_u, &temp); CHKERRABORT(PETSC_COMM_WORLD, ierr);
 
+        // ---- PRINT STATEMENT ----        
+        VecMax(X_p, NULL, &max_val);
+        PetscPrintf(PETSC_COMM_WORLD, "Max of X_p = %g\n", PetscRealPart(max_val));
+
+        VecMax(B_d, NULL, &max_val);
+        PetscPrintf(PETSC_COMM_WORLD, "Max of B_d = %g\n", PetscRealPart(max_val));
+
+        VecMax(rhs, NULL, &max_val);
+        PetscPrintf(PETSC_COMM_WORLD, "Max of rhs = %g\n", PetscRealPart(max_val));
+
+        // ---- PRINT STATEMENT ----        
+
         ierr = VecCopy(B_u, B_prime_u); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        // Assuming A.m_Cud is C_du^T
         ierr = MatMultAdd(A.m_Cud, B_d, B_prime_u, B_prime_u); CHKERRABORT(PETSC_COMM_WORLD, ierr);
 
         // Compute RHS: rhs = B_prime_u - A_ACup * X_p
@@ -130,7 +193,18 @@ public:
         // Solve condensed system: A_ACuu * X_u = rhs
         Vec X_u;
         ierr = VecDuplicate(rhs, &X_u); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+
+        // ---- PRINT STATEMENT ----     
+        VecMax(rhs, NULL, &max_val);
+        PetscPrintf(PETSC_COMM_WORLD, "Max of rhs = %g\n", PetscRealPart(max_val));    
+        // ---- PRINT STATEMENT ----     
+
         ierr = KSPSolve(m_ksp, rhs, X_u); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+
+        // ---- PRINT STATEMENT ----     
+        VecMax(X_u, NULL, &max_val);
+        PetscPrintf(PETSC_COMM_WORLD, "Max of X_u = %g\n", PetscRealPart(max_val));  
+        // ---- PRINT STATEMENT ----     
 
         // Check convergence
         KSPConvergedReason reason;
@@ -149,9 +223,10 @@ public:
         ierr = MatMultAdd(A.m_Cdp, X_p, X_d, X_d); CHKERRABORT(PETSC_COMM_WORLD, ierr);
 
         // Scatter full nodal vector
-        ierr = A.scatter_solution(X_u, X_d, x); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        A.scatter_solution(X_u, X_d, x);
 
         // Cleanup PETSc temporaries (Owned vectors)
+        VecResetArray(x);
         VecDestroy(&B_prime_u);
         VecDestroy(&rhs);
         VecDestroy(&X_u);

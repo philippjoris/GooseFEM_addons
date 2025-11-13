@@ -1,4 +1,17 @@
-// Required headers (add to your file)
+/**
+ * Sparse matrix for PETSc solver that is partitioned in:
+ * -   unknown DOFs
+ * -   prescribed DOFs
+ * -   tied DOFs
+ *
+ * @file MatrixPartitionedTyings.h
+ * @copyright Copyright 2025. Philipp van der Loo. All rights reserved.
+ * @license This project is released under the GNU Public License (GPLv3).
+ */
+
+#ifndef GOOSEFEM_MATRIXPARTITIONEDTYINGS_PETSC_H
+#define GOOSEFEM_MATRIXPARTITIONEDTYINGS_PETSC_H
+
 #include <petscmat.h>
 #include <petscerror.h>
 #include <Eigen/Sparse>
@@ -6,15 +19,32 @@
 #include <stdexcept>
 #include <limits>
 
+namespace GooseFEM {
+
+void initializePetscOnce() {
+    static bool initialized = false;
+    if (!initialized) {
+        int argc = 0;
+        char **argv = nullptr;
+        PetscErrorCode ierr = PetscInitialize(&argc, &argv, nullptr, nullptr);
+        if (ierr) {
+            throw std::runtime_error("PETSc initialization failed");
+        }
+        initialized = true;
+    }
+}
+
 // forward declaration for solver if needed
-template <class> class SolverPartitionedTyings_PETSc;
+class SolverPartitionedTyings_PETSc;
 
 class MatrixPartitionedTyings_PETSc {
 private:
     // NOTE: PETSc types (Mat) are pointers under the hood; initialize to nullptr.
     Mat m_A = nullptr;    ///< global assembled matrix (all dofs)
     Mat m_Cdu = nullptr;  ///< tying matrix (dependent rows, unknown cols)
+    Mat m_Cud = nullptr;  ///< transpose of Cdu
     Mat m_Cdp = nullptr;  ///< tying matrix (dependent rows, prescribed cols)
+    Mat m_Cpd = nullptr;  ///< transpose of Cdp
     Mat m_ACuu = nullptr; ///< condensed system matrix (optional)
     Mat m_ACup = nullptr; ///< condensed system matrix (optional)
 
@@ -35,7 +65,7 @@ protected:
     Eigen::SparseMatrix<double> m_Cud_eig, m_Cpd_eig; // if you still want Eigen copies
 
     // grant access to solver class
-    template <class> friend class SolverPartitionedTyings_PETSc;
+    friend class SolverPartitionedTyings_PETSc;
 
 public:
     MatrixPartitionedTyings_PETSc() = default;
@@ -45,6 +75,7 @@ public:
         const Eigen::SparseMatrix<double>& Cdu,
         const Eigen::SparseMatrix<double>& Cdp
     ) {
+        GooseFEM::initializePetscOnce();
         GOOSEFEM_ASSERT(Cdu.rows() == Cdp.rows());
 
         m_dofs = dofs;
@@ -70,19 +101,36 @@ public:
         PetscErrorCode ierr;
         ierr = EigenToPETScMat(Cdu, &m_Cdu); CHKERRABORT(PETSC_COMM_WORLD, ierr);
         ierr = EigenToPETScMat(Cdp, &m_Cdp); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = EigenToPETScMat(m_Cud_eig, &m_Cud); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = EigenToPETScMat(m_Cpd_eig, &m_Cpd); CHKERRABORT(PETSC_COMM_WORLD, ierr);      
 
         ierr = MatCreate(PETSC_COMM_WORLD, &m_A); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatSetType(m_A, MATMPIAIJ); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        
+        int rank, size;
+        MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
+        MPI_Comm_size(PETSC_COMM_WORLD, &size);
+        
         ierr = MatSetSizes(m_A, PETSC_DECIDE, PETSC_DECIDE,
                            (PetscInt)m_ndof, (PetscInt)m_ndof); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        
         ierr = MatSetType(m_A, MATAIJ); CHKERRABORT(PETSC_COMM_WORLD, ierr);
         ierr = MatSetUp(m_A); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-
+        
+        
         this->initialize_index_sets();
     }
 
     virtual ~MatrixPartitionedTyings_PETSc() {
         destroy_petsc_tyings_objects();
-    }
+    }    
+    // Getters for protected members
+    size_t nnode() const { return m_nnode; }
+    size_t ndim() const { return m_ndim; }
+    size_t nnu()  const { return m_nnu; }
+    size_t nnp()  const { return m_nnp; }
+    size_t nnd()  const { return m_nnd; }
+    size_t ndof() const { return m_ndof; }
 
     // Accessors
     const Mat& data_ACuu() const { return m_ACuu; }
@@ -133,113 +181,10 @@ public:
 
         VecAssemblyBegin(x_global);
         VecAssemblyEnd(x_global);
-    }
 
-private:
-    // destroy mats
-    void destroy_petsc_tyings_objects() {
-        if (m_A) MatDestroy(&m_A);
-        if (m_Cdu) MatDestroy(&m_Cdu);
-        if (m_Cdp) MatDestroy(&m_Cdp);
-        if (m_ACuu) MatDestroy(&m_ACuu);
-        if (m_ACup) MatDestroy(&m_ACup);
-        if (m_IS_u) ISDestroy(&m_IS_u);
-        if (m_IS_d) ISDestroy(&m_IS_d);
-        if (m_IS_p) ISDestroy(&m_IS_p);
-        if (m_scatter_u) VecScatterDestroy(&m_scatter_u);
-        if (m_scatter_d) VecScatterDestroy(&m_scatter_d);
-    }
-
-    // Convert Eigen sparse -> PETSc Mat (creates a SeqAIJ/MPiAIJ depending on communicator)
-    PetscErrorCode EigenToPETScMat(const Eigen::SparseMatrix<double>& eigen_mat, Mat* outMat) {
-        PetscErrorCode ierr;
-        PetscInt rows = (PetscInt)eigen_mat.rows();
-        PetscInt cols = (PetscInt)eigen_mat.cols();
-        PetscInt nnz = (PetscInt)eigen_mat.nonZeros();
-
-        // 1. Create and Setup Mat
-        ierr = MatCreate(PETSC_COMM_WORLD, outMat); CHKERRQ(ierr);
-        ierr = MatSetSizes(*outMat, PETSC_DECIDE, PETSC_DECIDE, rows, cols); CHKERRQ(ierr);
-        ierr = MatSetType(*outMat, MATAIJ); CHKERRQ(ierr);
-        
-        // 2. Pre-allocation (Essential for performance)
-        PetscInt local_rows = PETSC_DECIDE;
-        ierr = MatSetSizes(*outMat, local_rows, PETSC_DECIDE, rows, cols); CHKERRQ(ierr);
-        
-        // Simplified preallocation: estimate based on average non-zeros per row.
-        PetscInt max_nonzeros_per_row_estimate = nnz / rows + 1; 
-        ierr = MatSeqAIJSetPreallocation(*outMat, max_nonzeros_per_row_estimate, NULL); CHKERRQ(ierr);
-        ierr = MatMPIAIJSetPreallocation(*outMat, max_nonzeros_per_row_estimate, NULL, max_nonzeros_per_row_estimate, NULL); CHKERRQ(ierr);
-        
-        ierr = MatSetUp(*outMat); CHKERRQ(ierr);
-        
-        // 3. Extract and Insert Data (Bulk Operation)
-        int rank;
-        MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
-
-        if (rank == 0) { 
-            std::vector<PetscInt> i_indices;
-            std::vector<PetscInt> j_indices;
-            std::vector<PetscScalar> values;
-
-            i_indices.reserve(nnz);
-            j_indices.reserve(nnz);
-            values.reserve(nnz);
-
-            // Iterate over Eigen matrix to fill COO arrays
-            for (int k = 0; k < eigen_mat.outerSize(); ++k) {
-                for (Eigen::SparseMatrix<double>::InnerIterator it(eigen_mat, k); it; ++it) {
-                    i_indices.push_back((PetscInt)it.row());
-                    j_indices.push_back((PetscInt)it.col());
-                    values.push_back((PetscScalar)it.value());
-                }
-            }
-
-            PetscInt one = 1;
-            for (PetscInt k = 0; k < nnz; ++k) {
-                PetscInt i = i_indices[k];
-                PetscInt j = j_indices[k];
-                PetscScalar v = values[k];
-                ierr = MatSetValues(*outMat, one, &i, one, &j, &v, INSERT_VALUES); CHKERRQ(ierr);
-            }
-        }
-        
-        // 4. Assembly (Collective Operation)
-        ierr = MatAssemblyBegin(*outMat, MAT_FINAL_ASSEMBLY); CHKERRQ(ierr);
-        ierr = MatAssemblyEnd(*outMat, MAT_FINAL_ASSEMBLY); CHKERRQ(ierr);
-        return 0;
-    }
-
-    void clear()
-    {
-        if (m_A) {
-            PetscErrorCode ierr = MatZeroEntries(m_A); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        }
-    }
-
-    void initialize_index_sets(MPI_Comm comm = PETSC_COMM_WORLD) {
-        PetscErrorCode ierr;
-
-        std::vector<PetscInt> iu(m_nnu), id(m_nnd), ip(m_nnp);
-        for (size_t k = 0; k < m_nnu; ++k) iu[k] = (PetscInt)m_iiu(k);
-        for (size_t k = 0; k < m_nnd; ++k) id[k] = (PetscInt)m_iid(k);
-        for (size_t k = 0; k < m_nnp; ++k) ip[k] = (PetscInt)m_iip(k);
-
-        ierr = ISCreateGeneral(comm, iu.size(), iu.data(), PETSC_COPY_VALUES, &m_IS_u); CHKERRABORT(comm, ierr);
-        ierr = ISCreateGeneral(comm, id.size(), id.data(), PETSC_COPY_VALUES, &m_IS_d); CHKERRABORT(comm, ierr);
-        ierr = ISCreateGeneral(comm, ip.size(), ip.data(), PETSC_COPY_VALUES, &m_IS_p); CHKERRABORT(comm, ierr);
-
-        Vec tmp_u, tmp_d, x_global_dummy;
-        VecCreateSeq(PETSC_COMM_SELF, (PetscInt)m_nnu, &tmp_u);
-        VecCreateSeq(PETSC_COMM_SELF, (PetscInt)m_nnd, &tmp_d);
-        VecCreateMPI(PETSC_COMM_WORLD, PETSC_DECIDE, (PetscInt)m_ndof, &x_global_dummy);
-
-        ierr = VecScatterCreate(tmp_u, NULL, x_global_dummy, m_IS_u, &m_scatter_u); CHKERRABORT(comm, ierr);
-        ierr = VecScatterCreate(tmp_d, NULL, x_global_dummy, m_IS_d, &m_scatter_d); CHKERRABORT(comm, ierr);
-
-        VecDestroy(&tmp_u);
-        VecDestroy(&tmp_d);
-        VecDestroy(&x_global_dummy);
+        PetscScalar max_val;
+        VecMax(x_global, NULL, &max_val);
+        PetscPrintf(PETSC_COMM_WORLD, "Max of x_global = %g\n", PetscRealPart(max_val));
     }
 
     // Assemble element matrices into m_A
@@ -283,50 +228,43 @@ private:
         // Note: do not call MatAssembly here; call finalize_impl once after all assemble_impl calls.
     }
 
-    void finalize(bool stabilize)
+    PetscErrorCode finalize(bool stabilize)
     {
         PetscErrorCode ierr;
         ierr = MatAssemblyBegin(m_A, MAT_FINAL_ASSEMBLY); CHKERRQ(ierr);
-        ierr = MatAssemblyEnd(m_A, MAT_FINAL_ASSEMBLY); CHKERRQ(ierr);
-
+        ierr = MatAssemblyEnd(m_A, MAT_FINAL_ASSEMBLY);   CHKERRQ(ierr);
         if (stabilize) {
-            // Example stabilization: add tiny diagonal to zero diagonals.
-            // Get diagonal vector
             Vec diag;
-            ierr = MatGetDiagonal(m_A, &diag); CHKERRQ(ierr);
-            PetscScalar min_diag = PETSC_MAX_REAL;
-            PetscScalar v;
+            ierr = MatCreateVecs(m_A, &diag, NULL); CHKERRQ(ierr);
+            ierr = MatGetDiagonal(m_A, diag); CHKERRQ(ierr);
             PetscInt size;
             ierr = VecGetSize(diag, &size); CHKERRQ(ierr);
-
-            // iterate to find min nonzero diagonal
-            const PetscScalar *array = nullptr;
-            ierr = VecGetArrayRead(diag, &array); CHKERRQ(ierr);
+            const PetscScalar* diag_array = nullptr;
+            ierr = VecGetArrayRead(diag, &diag_array); CHKERRQ(ierr);
+            PetscScalar min_diag = PETSC_MAX_REAL;
             for (PetscInt i = 0; i < size; ++i) {
-                v = array[i];
+                PetscScalar v = diag_array[i];
                 if (std::abs(v) > 1e-12 && std::abs(v) < min_diag) min_diag = std::abs(v);
             }
-            ierr = VecRestoreArrayRead(diag, &array); CHKERRQ(ierr);
+            
+            ierr = VecRestoreArrayRead(diag, &diag_array); CHKERRQ(ierr);
 
             if (min_diag < PETSC_MAX_REAL) {
                 PetscScalar spring = 1e-3 * min_diag;
-                // Create a vector with spring on places where diagonal is ~0
+
                 Vec adddiag;
                 ierr = VecDuplicate(diag, &adddiag); CHKERRQ(ierr);
                 ierr = VecSet(adddiag, 0.0); CHKERRQ(ierr);
 
-                // mark small diag positions
-                ierr = VecGetArray(adddiag, &array); CHKERRQ(ierr); // reuse pointer variable name, restored below
-                // Can't write through array from VecGetArrayRead; so get writable array separately
-                PetscScalar *warray = nullptr;
-                ierr = VecGetArray(adddiag, &warray); CHKERRQ(ierr);
-                ierr = VecGetArrayRead(diag, &array); CHKERRQ(ierr);
-                for (PetscInt i = 0; i < size; ++i) {
-                    if (std::abs(array[i]) < 1e-12) warray[i] = spring;
-                }
-                ierr = VecRestoreArrayRead(diag, &array); CHKERRQ(ierr);
-                ierr = VecRestoreArray(adddiag, &warray); CHKERRQ(ierr);
+                PetscScalar* adddiag_array = nullptr;
+                ierr = VecGetArray(adddiag, &adddiag_array); CHKERRQ(ierr);
 
+                ierr = VecGetArrayRead(diag, &diag_array); CHKERRQ(ierr);
+                for (PetscInt i = 0; i < size; ++i) {
+                    if (std::abs(diag_array[i]) < 1e-12) adddiag_array[i] = spring;
+                }
+                ierr = VecRestoreArrayRead(diag, &diag_array); CHKERRQ(ierr);
+                ierr = VecRestoreArray(adddiag, &adddiag_array); CHKERRQ(ierr);
                 ierr = MatDiagonalSet(m_A, adddiag, ADD_VALUES); CHKERRQ(ierr);
                 ierr = VecDestroy(&adddiag); CHKERRQ(ierr);
             }
@@ -335,8 +273,95 @@ private:
         }
 
         m_changed = true;
+        return 0;
+    }
+
+    void clear()
+    {
+        if (m_A) {
+            PetscErrorCode ierr = MatZeroEntries(m_A); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        }
+    }
+
+private:
+    // destroy mats
+    void destroy_petsc_tyings_objects() {
+        if (m_A) MatDestroy(&m_A);
+        if (m_Cdu) MatDestroy(&m_Cdu);
+        if (m_Cdp) MatDestroy(&m_Cdp);
+        if (m_ACuu) MatDestroy(&m_ACuu);
+        if (m_ACup) MatDestroy(&m_ACup);
+        if (m_IS_u) ISDestroy(&m_IS_u);
+        if (m_IS_d) ISDestroy(&m_IS_d);
+        if (m_IS_p) ISDestroy(&m_IS_p);
+        if (m_scatter_u) VecScatterDestroy(&m_scatter_u);
+        if (m_scatter_d) VecScatterDestroy(&m_scatter_d);
+    }
+
+    // Convert Eigen sparse -> PETSc Mat (creates a SeqAIJ/MPiAIJ depending on communicator)
+    PetscErrorCode EigenToPETScMat(const Eigen::SparseMatrix<double>& eigen_mat, Mat* outMat) {
+        PetscErrorCode ierr;
+        PetscInt rows = (PetscInt)eigen_mat.rows();
+        PetscInt cols = (PetscInt)eigen_mat.cols();
+
+        // Count nonzeros per row
+        std::vector<PetscInt> nnz_per_row(rows, 0);
+        for (int k = 0; k < eigen_mat.outerSize(); ++k)
+            for (Eigen::SparseMatrix<double>::InnerIterator it(eigen_mat, k); it; ++it)
+                nnz_per_row[it.row()]++;
+        PetscInt max_nnz_row = *std::max_element(nnz_per_row.begin(), nnz_per_row.end());
+
+        // --- Create parallel matrix (MPIAIJ) even for 1 rank ---
+        ierr = MatCreate(PETSC_COMM_WORLD, outMat); CHKERRQ(ierr);
+        ierr = MatSetSizes(*outMat, PETSC_DECIDE, PETSC_DECIDE, rows, cols); CHKERRQ(ierr);
+        ierr = MatSetType(*outMat, MATMPIAIJ); CHKERRQ(ierr);
+        ierr = MatMPIAIJSetPreallocation(*outMat, max_nnz_row, NULL, max_nnz_row, NULL); CHKERRQ(ierr);
+        ierr = MatSetUp(*outMat); CHKERRQ(ierr);
+
+        // Insert values
+        for (int k = 0; k < eigen_mat.outerSize(); ++k)
+            for (Eigen::SparseMatrix<double>::InnerIterator it(eigen_mat, k); it; ++it) {
+                PetscInt i = (PetscInt)it.row();
+                PetscInt j = (PetscInt)it.col();
+                PetscScalar v = (PetscScalar)it.value();
+                ierr = MatSetValues(*outMat, 1, &i, 1, &j, &v, INSERT_VALUES); CHKERRQ(ierr);
+            }
+
+        ierr = MatAssemblyBegin(*outMat, MAT_FINAL_ASSEMBLY); CHKERRQ(ierr);
+        ierr = MatAssemblyEnd(*outMat, MAT_FINAL_ASSEMBLY); CHKERRQ(ierr);
+
+        return 0;
+    }
+
+    void initialize_index_sets(MPI_Comm comm = PETSC_COMM_WORLD) {
+        PetscErrorCode ierr;
+
+        std::vector<PetscInt> iu(m_nnu), id(m_nnd), ip(m_nnp);
+        for (size_t k = 0; k < m_nnu; ++k) iu[k] = (PetscInt)m_iiu(k);
+        for (size_t k = 0; k < m_nnd; ++k) id[k] = (PetscInt)m_iid(k);
+        for (size_t k = 0; k < m_nnp; ++k) ip[k] = (PetscInt)m_iip(k);
+
+        ierr = ISCreateGeneral(comm, iu.size(), iu.data(), PETSC_COPY_VALUES, &m_IS_u); CHKERRABORT(comm, ierr);
+        ierr = ISCreateGeneral(comm, id.size(), id.data(), PETSC_COPY_VALUES, &m_IS_d); CHKERRABORT(comm, ierr);
+        ierr = ISCreateGeneral(comm, ip.size(), ip.data(), PETSC_COPY_VALUES, &m_IS_p); CHKERRABORT(comm, ierr);
+
+        Vec tmp_u, tmp_d, x_global_dummy;
+        VecCreateSeq(PETSC_COMM_SELF, (PetscInt)m_nnu, &tmp_u);
+        VecCreateSeq(PETSC_COMM_SELF, (PetscInt)m_nnd, &tmp_d);
+        VecCreateMPI(PETSC_COMM_WORLD, PETSC_DECIDE, (PetscInt)m_ndof, &x_global_dummy);
+
+        ierr = VecScatterCreate(tmp_u, NULL, x_global_dummy, m_IS_u, &m_scatter_u); CHKERRABORT(comm, ierr);
+        ierr = VecScatterCreate(tmp_d, NULL, x_global_dummy, m_IS_d, &m_scatter_d); CHKERRABORT(comm, ierr);
+
+        VecDestroy(&tmp_u);
+        VecDestroy(&tmp_d);
+        VecDestroy(&x_global_dummy);
     }
 
     // placeholder flag used earlier
     bool m_changed = false;
 };
+
+} // namespace GooseFEM
+
+#endif

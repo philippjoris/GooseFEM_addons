@@ -1,6 +1,6 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
-#include "SolverPartitionedTyings_PETSc.h"
+#include "GooseFEM/SolverPartitionedTyings_PETSc.h"
 
 namespace py = pybind11;
 using namespace GooseFEM;
@@ -18,8 +18,8 @@ void init_SolverPartitionedTyings_PETSc(py::module& m)
              This must be called before `solve` or `solve_u`.
              )pbdoc")
         
-        .def("solve", &SolverPartitionedTyings_PETSc::solve<Eigen::VectorXd>,
-             py::arg("A"), py::arg("b"), py::arg("x"),
+        .def("solve", &SolverPartitionedTyings_PETSc::solve<xt::pytensor<double, 2>>,
+            py::arg("A"), py::arg("b"), py::arg("x"),
              R"pbdoc(
              Solve the full partitioned system:
              
