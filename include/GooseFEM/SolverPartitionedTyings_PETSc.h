@@ -117,13 +117,16 @@ public:
         PetscErrorCode ierr;
         
         Vec b;
-        CreatePetscVecFromArray(b_py, &b);
+        PetscInt n_b = (PetscInt)b_py.size();
+        ierr = VecCreateSeq(PETSC_COMM_SELF, n_b, &b); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = VecPlaceArray(b, b_py.data()); CHKERRABORT(PETSC_COMM_WORLD, ierr);
 
         // --- 2. Create global nodal vector x of size m_ndof ---
         Vec x;
         PetscInt n = (PetscInt)x_py.size();
         ierr = VecCreateSeq(PETSC_COMM_SELF, n, &x); CHKERRABORT(PETSC_COMM_WORLD, ierr);
         ierr = VecPlaceArray(x, x_py.data()); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+
 
         // --- 3. Fill x with values from x_py at correct prescribed DOF indices ---
         // Loop like Eigen: global DOF indices = m_dofs(m,i)
@@ -141,22 +144,47 @@ public:
             }
         }
 
+        std::vector<PetscInt> idx_b;
+        std::vector<PetscScalar> vals_b;
+
+        PetscScalar val_b;
+        for (size_t m = 0; m < A.m_nnode; ++m) {
+            for (size_t i = 0; i < A.m_ndim; ++i) {
+                PetscInt gdof = (PetscInt)A.m_dofs(m,i);
+
+                // 1. Unknown DOFs (X_u): 0 <= gdof < m_nnu
+                if (gdof < (PetscInt)A.m_nnu) {
+                    idx_b.push_back(gdof);
+                    vals_b.push_back(b_py(m,i));
+                } 
+                else if (gdof < (PetscInt)A.m_nni) {
+                    idx_b.push_back(gdof);
+                    vals_b.push_back(b_py(m,i));
+                }
+                else { 
+                    PetscInt local_d = gdof - A.m_nni;
+                    idx_b.push_back(gdof);
+                    vals_b.push_back(b_py(m,i));
+                }
+            }
+        }
+
+
         ierr = VecSetValues(x, idx.size(), idx.data(), vals.data(), INSERT_VALUES); CHKERRABORT(PETSC_COMM_WORLD, ierr);
         ierr = VecAssemblyBegin(x); CHKERRABORT(PETSC_COMM_WORLD, ierr);
         ierr = VecAssemblyEnd(x); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = VecSetValues(b, idx_b.size(), idx_b.data(), vals_b.data(), INSERT_VALUES); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = VecAssemblyBegin(b); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = VecAssemblyEnd(b); CHKERRABORT(PETSC_COMM_WORLD, ierr);        
 
         // Factorize (build condensed matrices if needed)
         this->factorize(A);
         
 
         // ---- PRINT STATEMENT ----
-        MatInfo info;
-        MatGetInfo(A.m_ACuu, MAT_LOCAL, &info);
-        PetscPrintf(PETSC_COMM_WORLD, "A_ACuu nnz = %g\n", info.nz_used);
-
-        PetscScalar max_val;
-        VecMax(x, NULL, &max_val);
-        PetscPrintf(PETSC_COMM_WORLD, "Max of x = %g\n", PetscRealPart(max_val));
+        // PetscScalar max_val;
+        // VecMax(x, NULL, &max_val);
+        // PetscPrintf(PETSC_COMM_WORLD, "Max of full vector du = %g\n", PetscRealPart(max_val));
         // ---- PRINT STATEMENT ----        
 
         // Extract sub-vectors (views)
@@ -172,19 +200,24 @@ public:
         ierr = VecDuplicate(B_u, &temp); CHKERRABORT(PETSC_COMM_WORLD, ierr);
 
         // ---- PRINT STATEMENT ----        
-        VecMax(X_p, NULL, &max_val);
-        PetscPrintf(PETSC_COMM_WORLD, "Max of X_p = %g\n", PetscRealPart(max_val));
+        // VecMax(X_p, NULL, &max_val);
+        // PetscPrintf(PETSC_COMM_WORLD, "Max of asDofs_p(du) = %g\n", PetscRealPart(max_val));
 
-        VecMax(B_d, NULL, &max_val);
-        PetscPrintf(PETSC_COMM_WORLD, "Max of B_d = %g\n", PetscRealPart(max_val));
+        // VecMax(B_u, NULL, &max_val);
+        // PetscPrintf(PETSC_COMM_WORLD, "Max of asDofs_u(fres) = %g\n", PetscRealPart(max_val));        
 
-        VecMax(rhs, NULL, &max_val);
-        PetscPrintf(PETSC_COMM_WORLD, "Max of rhs = %g\n", PetscRealPart(max_val));
+        // VecMax(B_d, NULL, &max_val);
+        // PetscPrintf(PETSC_COMM_WORLD, "Max of asDofs_d(fres) = %g\n", PetscRealPart(max_val));
 
         // ---- PRINT STATEMENT ----        
 
         ierr = VecCopy(B_u, B_prime_u); CHKERRABORT(PETSC_COMM_WORLD, ierr);
         ierr = MatMultAdd(A.m_Cud, B_d, B_prime_u, B_prime_u); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+
+        // ---- PRINT STATEMENT ----     
+        // VecMax(B_prime_u, NULL, &max_val);
+        // PetscPrintf(PETSC_COMM_WORLD, "Max of B_u += A.m_Cud * B_d: %g\n", PetscRealPart(max_val));    
+        // ---- PRINT STATEMENT ----            
 
         // Compute RHS: rhs = B_prime_u - A_ACup * X_p
         ierr = MatMult(A.m_ACup, X_p, temp); CHKERRABORT(PETSC_COMM_WORLD, ierr);
@@ -195,15 +228,15 @@ public:
         ierr = VecDuplicate(rhs, &X_u); CHKERRABORT(PETSC_COMM_WORLD, ierr);
 
         // ---- PRINT STATEMENT ----     
-        VecMax(rhs, NULL, &max_val);
-        PetscPrintf(PETSC_COMM_WORLD, "Max of rhs = %g\n", PetscRealPart(max_val));    
+        // VecMax(rhs, NULL, &max_val);
+        // PetscPrintf(PETSC_COMM_WORLD, "Max of B_prime_u - A_ACup * X_p = %g\n", PetscRealPart(max_val));    
         // ---- PRINT STATEMENT ----     
 
         ierr = KSPSolve(m_ksp, rhs, X_u); CHKERRABORT(PETSC_COMM_WORLD, ierr);
 
         // ---- PRINT STATEMENT ----     
-        VecMax(X_u, NULL, &max_val);
-        PetscPrintf(PETSC_COMM_WORLD, "Max of X_u = %g\n", PetscRealPart(max_val));  
+        // VecMax(X_u, NULL, &max_val);
+        // PetscPrintf(PETSC_COMM_WORLD, "Max of du_new = %g\n", PetscRealPart(max_val));  
         // ---- PRINT STATEMENT ----     
 
         // Check convergence
@@ -222,21 +255,34 @@ public:
         ierr = MatMult(A.m_Cdu, X_u, X_d); CHKERRABORT(PETSC_COMM_WORLD, ierr);
         ierr = MatMultAdd(A.m_Cdp, X_p, X_d, X_d); CHKERRABORT(PETSC_COMM_WORLD, ierr);
 
+        // ---- PRINT STATEMENT ----     
+        // VecMax(X_d, NULL, &max_val);
+        // PetscPrintf(PETSC_COMM_WORLD, "Max of x_d = %g\n", PetscRealPart(max_val));  
+        // ---- PRINT STATEMENT ----     
+
         // Scatter full nodal vector
         A.scatter_solution(X_u, X_d, x);
 
         // Cleanup PETSc temporaries (Owned vectors)
-        VecResetArray(x);
+        // 1. Reset array view for x
+        ierr = VecResetArray(x); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = VecResetArray(b); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+
+        // 2. Destroy owned PETSc temporaries (ONCE)
         VecDestroy(&B_prime_u);
         VecDestroy(&rhs);
         VecDestroy(&X_u);
         VecDestroy(&X_d);
         VecDestroy(&temp);
 
-        // Restore subvector views (MUST match the Get/AsDofs calls)
+        // 3. Restore subvector views
         ierr = A.RestoreDofs_u(b, B_u); CHKERRABORT(PETSC_COMM_WORLD, ierr);
         ierr = A.RestoreDofs_d(b, B_d); CHKERRABORT(PETSC_COMM_WORLD, ierr);
         ierr = A.RestoreDofs_p(x, X_p); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+
+        // 4. Destroy x and b
+        ierr = VecDestroy(&x); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = VecDestroy(&b); CHKERRABORT(PETSC_COMM_WORLD, ierr);
     }
 
     // ---- Solving condensed system ----

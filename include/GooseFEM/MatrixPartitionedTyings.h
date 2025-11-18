@@ -600,15 +600,24 @@ private:
         Eigen::VectorXd B_u = A.AsDofs_u(b);
         Eigen::VectorXd B_d = A.AsDofs_d(b);
         Eigen::VectorXd X_p = A.AsDofs_p(x);
+        
+        // std::cout << "Max of asDofs_u(fres) = " << B_u.maxCoeff() << std::endl;
+        // std::cout << "Max of asDofs_d(fres) = " << B_d.maxCoeff() << std::endl;
 
         B_u += A.m_Cud * B_d;
+
+        // std::cout << "Max of B_u += A.m_Cud * B_d: " << B_u.maxCoeff() << std::endl;
 
         Eigen::VectorXd X_u = m_solver.solve(Eigen::VectorXd(B_u - A.m_ACup * X_p));
         if (m_solver.info() != Eigen::Success) {
             throw std::runtime_error("ConjugateGradient solver failed to converge in solve_nodevec_impl");
         }
 
+        // std::cout << "Max of du_new: " << X_u.maxCoeff() << std::endl;
+
         Eigen::VectorXd X_d = A.m_Cdu * X_u + A.m_Cdp * X_p;
+
+        // std::cout << "Max of X_d: " << X_d.maxCoeff() << std::endl;
 
 #pragma omp parallel for
         for (ptrdiff_t m = 0; m < (ptrdiff_t)A.m_nnode; ++m) {
