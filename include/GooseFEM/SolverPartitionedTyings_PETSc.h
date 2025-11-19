@@ -40,35 +40,92 @@ public:
     // ---- Factorization step ----
     void factorize(MatrixPartitionedTyings_PETSc& A)
     {
+        PetscPrintf(PETSC_COMM_WORLD, "\n--- Inside factorize function ---\n");
         if (!A.m_changed && !m_factor && m_ksp)
             return;
 
         PetscErrorCode ierr;
+        MatReuse reuse_flag = MAT_INITIAL_MATRIX;
+
+        if (A.m_Aud != nullptr) {
+            reuse_flag = MAT_REUSE_MATRIX;
+        }
 
         // Clean up old condensed matrices & KSP
         if (A.m_ACuu) { MatDestroy(&A.m_ACuu); A.m_ACuu = nullptr; }
         if (A.m_ACup) { MatDestroy(&A.m_ACup); A.m_ACup = nullptr; }
         destroyKSP();
 
-        // --- Extract submatrices from the global system matrix A ---
-        Mat A_uu = nullptr, A_ud = nullptr, A_du = nullptr, A_dd = nullptr;
-        ierr = MatCreateSubMatrix(A.m_A, A.m_IS_u, A.m_IS_u, MAT_INITIAL_MATRIX, &A_uu); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = MatCreateSubMatrix(A.m_A, A.m_IS_u, A.m_IS_d, MAT_INITIAL_MATRIX, &A_ud); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = MatCreateSubMatrix(A.m_A, A.m_IS_d, A.m_IS_u, MAT_INITIAL_MATRIX, &A_du); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = MatCreateSubMatrix(A.m_A, A.m_IS_d, A.m_IS_d, MAT_INITIAL_MATRIX, &A_dd); CHKERRABORT(PETSC_COMM_WORLD, ierr);
 
+        PetscPrintf(PETSC_COMM_WORLD, "\n--- Submatrices were extracted ---\n");
         // --- Compute transpose of C_du once ---
         Mat C_du_T = nullptr;
         ierr = MatTranspose(A.m_Cdu, MAT_INITIAL_MATRIX, &C_du_T); CHKERRABORT(PETSC_COMM_WORLD, ierr);
 
+        PetscInt rank; 
+        MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
+
+        PetscInt rows_Aud, cols_Aud, rows_Adu, cols_Adu, rows_Cdu, cols_Cdu, rows_Cdu_T, cols_Cdu_T, size_d_is;
+
+        ierr = MatCreateSubMatrix(A.m_A, A.m_IS_u, A.m_IS_u, MAT_INITIAL_MATRIX, &A.m_Auu); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatCreateSubMatrix(A.m_A, A.m_IS_u, A.m_IS_d, MAT_INITIAL_MATRIX, &A.m_Aud); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatCreateSubMatrix(A.m_A, A.m_IS_d, A.m_IS_u, MAT_INITIAL_MATRIX, &A.m_Adu); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatCreateSubMatrix(A.m_A, A.m_IS_d, A.m_IS_d, MAT_INITIAL_MATRIX, &A.m_Add); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+
+        // Get global dimensions of the matrices being multiplied (A_ud * A.m_Cdu)
+        ierr = MatGetSize(A.m_Aud, &rows_Aud, &cols_Aud); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatGetSize(A.m_Cdu, &rows_Cdu, &cols_Cdu); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatGetSize(A.m_Adu, &rows_Adu, &cols_Adu); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatGetSize(C_du_T, &rows_Cdu_T, &cols_Cdu_T); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+
+        // Get global size of the index set that defines the column count (A.m_IS_d should define A_ud columns)
+        ierr = ISGetSize(A.m_IS_d, &size_d_is); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+
+        if (rank == 0) {
+            PetscPrintf(PETSC_COMM_WORLD, "\n--- Parallel Debugging Dimensions ---\n");
+            
+            // Check A_ud (Matrix A in the error: 5994x1986)
+            PetscPrintf(PETSC_COMM_WORLD, "A_ud Dimensions (Rows x Cols): %D x %D \n", rows_Aud, cols_Aud);
+            
+            // Check A.m_Cdu (Matrix B in the error: 993x2997)
+            PetscPrintf(PETSC_COMM_WORLD, "Cdu Dimensions (Rows x Cols): %D x %D \n", rows_Cdu, cols_Cdu);
+
+            // Check C_du_T
+            PetscPrintf(PETSC_COMM_WORLD, "A_du Dimensions (Rows x Cols): %D x %D \n", rows_Adu, cols_Adu);
+
+            // Check A_du
+            PetscPrintf(PETSC_COMM_WORLD, "C_du_T Dimensions (Rows x Cols): %D x %D \n", rows_Cdu_T, cols_Cdu_T);            
+            
+            // Check the d-partition size (Cdu rows should match A_ud columns)
+            PetscPrintf(PETSC_COMM_WORLD, "A.m_IS_d Global Size (Should be 993): %D\n", size_d_is);
+            PetscPrintf(PETSC_COMM_WORLD, "-----------------------------------\n\n");
+        }
+
+        PetscInt lr, lc;
+        MatGetLocalSize(A.m_Aud, &lr, &lc);
+        PetscPrintf(PETSC_COMM_WORLD, "Rank %d: A_ud local size = %D x %D\n", rank, lr, lc);
+
+        MatGetLocalSize(A.m_Cdu, &lr, &lc);
+        PetscPrintf(PETSC_COMM_WORLD, "Rank %d: A.m_Cdu local size = %D x %D\n", rank, lr, lc);
+
+        
         // --- Compute condensed matrix A'_uu = A_uu + A_ud*C_du + C_du^T*A_du + C_du^T*A_dd*C_du ---
         Mat temp1 = nullptr, temp2 = nullptr, temp3 = nullptr, inter = nullptr;
-        ierr = MatMatMult(A_ud, A.m_Cdu, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &temp1); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = MatMatMult(C_du_T, A_du, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &temp2); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = MatMatMult(C_du_T, A_dd, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &inter); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatMatMult(A.m_Aud, A.m_Cdu, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &temp1); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatMatMult(C_du_T, A.m_Adu, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &temp2); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatMatMult(C_du_T, A.m_Add, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &inter); CHKERRABORT(PETSC_COMM_WORLD, ierr);
         ierr = MatMatMult(inter, A.m_Cdu, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &temp3); CHKERRABORT(PETSC_COMM_WORLD, ierr);
 
-        ierr = MatDuplicate(A_uu, MAT_COPY_VALUES, &A.m_ACuu); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        MatGetLocalSize(temp1, &lr, &lc);
+        PetscPrintf(PETSC_COMM_WORLD, "Rank %d: temp1 local size = %D x %D\n", rank, lr, lc);
+
+        MatGetLocalSize(A.m_Auu, &lr, &lc);
+        PetscPrintf(PETSC_COMM_WORLD, "Rank %d: A.m_Auu local size = %D x %D\n", rank, lr, lc);
+
+
+        ierr = MatDuplicate(A.m_Auu, MAT_COPY_VALUES, &A.m_ACuu); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        MatGetLocalSize(A.m_ACuu, &lr, &lc);
+        PetscPrintf(PETSC_COMM_WORLD, "Rank %d: A.m_ACuu local size = %D x %D\n", rank, lr, lc);
         ierr = MatAXPY(A.m_ACuu, 1.0, temp1, DIFFERENT_NONZERO_PATTERN); CHKERRABORT(PETSC_COMM_WORLD, ierr);
         ierr = MatAXPY(A.m_ACuu, 1.0, temp2, DIFFERENT_NONZERO_PATTERN); CHKERRABORT(PETSC_COMM_WORLD, ierr);
         ierr = MatAXPY(A.m_ACuu, 1.0, temp3, DIFFERENT_NONZERO_PATTERN); CHKERRABORT(PETSC_COMM_WORLD, ierr);
@@ -79,9 +136,9 @@ public:
         ierr = MatCreateSubMatrix(A.m_A, A.m_IS_d, A.m_IS_p, MAT_INITIAL_MATRIX, &A_dp); CHKERRABORT(PETSC_COMM_WORLD, ierr);
 
         Mat tempA1 = nullptr, tempA2 = nullptr, tempA3 = nullptr, inter2 = nullptr;
-        ierr = MatMatMult(A_ud, A.m_Cdp, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &tempA1); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatMatMult(A.m_Aud, A.m_Cdp, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &tempA1); CHKERRABORT(PETSC_COMM_WORLD, ierr);
         ierr = MatMatMult(C_du_T, A_dp, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &tempA2); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = MatMatMult(C_du_T, A_dd, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &inter2); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatMatMult(C_du_T, A.m_Add, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &inter2); CHKERRABORT(PETSC_COMM_WORLD, ierr);
         ierr = MatMatMult(inter2, A.m_Cdp, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &tempA3); CHKERRABORT(PETSC_COMM_WORLD, ierr);
 
         ierr = MatDuplicate(A_up, MAT_COPY_VALUES, &A.m_ACup); CHKERRABORT(PETSC_COMM_WORLD, ierr);
@@ -101,7 +158,6 @@ public:
         ierr = KSPSetFromOptions(m_ksp); CHKERRABORT(PETSC_COMM_WORLD, ierr);
 
         // --- Cleanup temporaries ---
-        MatDestroy(&A_uu); MatDestroy(&A_ud); MatDestroy(&A_du); MatDestroy(&A_dd);
         MatDestroy(&A_up); MatDestroy(&A_dp);
         MatDestroy(&C_du_T);
         MatDestroy(&temp1); MatDestroy(&temp2); MatDestroy(&temp3); MatDestroy(&inter);

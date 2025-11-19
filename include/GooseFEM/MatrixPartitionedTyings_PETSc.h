@@ -55,6 +55,8 @@ private:
     Mat m_Cpd = nullptr;  ///< transpose of Cdp
     Mat m_ACuu = nullptr; ///< condensed system matrix (optional)
     Mat m_ACup = nullptr; ///< condensed system matrix (optional)
+    Mat m_Auu = nullptr, m_Aud = nullptr, m_Adu = nullptr, m_Add = nullptr;
+    
 
     /* PETSc index sets and scatter contexts (add as members) */
     IS m_IS_u = nullptr;
@@ -105,28 +107,52 @@ public:
 
         GOOSEFEM_ASSERT(m_ndof <= m_nnode * m_ndim);
         GOOSEFEM_ASSERT(m_ndof == xt::amax(m_dofs)() + 1);
+        
+        int rank, size; MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
+        if (rank == 0) {
+            std::cout << "DEBUG: Cdu global dimensions (rows x cols): " 
+                    << Cdu.rows() << " x " << Cdu.cols() << std::endl;
+            std::cout << "DEBUG: Cdp global dimensions (rows x cols): " 
+                    << Cdp.rows() << " x " << Cdp.cols() << std::endl;
+            std::cout << "DEBUG: Derived m_ndof: " << m_ndof << std::endl;
+        }
 
-        PetscErrorCode ierr;
-        ierr = EigenToPETScMat(Cdu, &m_Cdu); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = EigenToPETScMat(Cdp, &m_Cdp); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = EigenToPETScMat(m_Cud_eig, &m_Cud); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = EigenToPETScMat(m_Cpd_eig, &m_Cpd); CHKERRABORT(PETSC_COMM_WORLD, ierr);      
+        PetscErrorCode ierr;     
 
         ierr = MatCreate(PETSC_COMM_WORLD, &m_A); CHKERRABORT(PETSC_COMM_WORLD, ierr);
         ierr = MatSetType(m_A, MATMPIAIJ); CHKERRABORT(PETSC_COMM_WORLD, ierr);
         
-        int rank, size;
         MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
         MPI_Comm_size(PETSC_COMM_WORLD, &size);
         
         ierr = MatSetSizes(m_A, PETSC_DECIDE, PETSC_DECIDE,
                            (PetscInt)m_ndof, (PetscInt)m_ndof); CHKERRABORT(PETSC_COMM_WORLD, ierr);
         
-        // ierr = MatSetType(m_A, MATAIJ); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        PetscInt d_nz = 50;
+        PetscInt o_nz = 50;
+
+        ierr = MatMPIAIJSetPreallocation(m_A, d_nz, NULL, o_nz, NULL); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatSetOption(m_A, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+
         ierr = MatSetUp(m_A); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        
+
+        // ierr = MatSetType(m_A, MATAIJ); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        // ierr = MatSetUp(m_A); CHKERRABORT(PETSC_COMM_WORLD, ierr);        
         
         this->initialize_index_sets();
+        
+        PetscInt local_d_size, local_u_size, local_p_size;
+        ierr = ISGetLocalSize(m_IS_d, &local_d_size); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = ISGetLocalSize(m_IS_u, &local_u_size); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = ISGetLocalSize(m_IS_p, &local_p_size); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+
+        PetscPrintf(PETSC_COMM_WORLD, "Rank %D: local_u_size=%D, local_d_size=%D, local_p_size=%D\n", 
+                    rank, local_u_size, local_d_size, local_p_size);
+        
+        ierr = EigenToPETScMat(Cdu, &m_Cdu, local_d_size); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = EigenToPETScMat(Cdp, &m_Cdp, local_d_size); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = EigenToPETScMat(m_Cud_eig, &m_Cud, local_u_size); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = EigenToPETScMat(m_Cpd_eig, &m_Cpd, local_p_size); CHKERRABORT(PETSC_COMM_WORLD, ierr); 
     }
 
     virtual ~MatrixPartitionedTyings_PETSc() {
@@ -236,21 +262,29 @@ public:
     {
         // Basic checks
         size_t nelem = elemmat.shape()[0];
-        size_t nnodes_per_elem = conn_elem.shape()[1];
-        GOOSEFEM_ASSERT(elemmat.shape()[1] == nnodes_per_elem * m_ndim && "elemmat row mismatch");
-        GOOSEFEM_ASSERT(elemmat.shape()[2] == nnodes_per_elem * m_ndim && "elemmat col mismatch");
 
+        PetscInt global_nelem;
+        MPI_Allreduce(&nelem, &global_nelem, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD);
         int rank;
         MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
+
+        if (rank == 0) {
+            PetscPrintf(PETSC_COMM_WORLD, "DEBUG: Local Element Count: %zu, Global Element Sum: %D\n", nelem, global_nelem);
+        }
+
+        size_t nnodes_per_elem = conn_elem.shape()[1];
+        size_t size = nnodes_per_elem * m_ndim; // Element matrix size (size x size)
+        GOOSEFEM_ASSERT(elemmat.shape()[1] == size && "elemmat row mismatch");
+        GOOSEFEM_ASSERT(elemmat.shape()[2] == size && "elemmat col mismatch");
+
 
         // Get the ownership range of this matrix on this rank
         PetscInt rstart, rend;
         MatGetOwnershipRange(m_A, &rstart, &rend);
 
         for (ptrdiff_t e = 0; e < (ptrdiff_t)nelem; ++e) {
-            size_t size = nnodes_per_elem * m_ndim;
-
-            // Global DOF indices for this element
+            
+            // 1. Global DOF indices for this element (used for J_cols)
             std::vector<PetscInt> idx(size);
             for (ptrdiff_t n = 0; n < (ptrdiff_t)nnodes_per_elem; ++n) {
                 for (ptrdiff_t j = 0; j < (ptrdiff_t)m_ndim; ++j) {
@@ -258,40 +292,50 @@ public:
                 }
             }
 
-            // Copy element matrix into contiguous vals (row-major)
+            // 2. Copy full element matrix into contiguous vals (size x size)
             std::vector<PetscScalar> vals(size * size);
             for (size_t i = 0; i < size; ++i)
                 for (size_t j = 0; j < size; ++j)
                     vals[i * size + j] = static_cast<PetscScalar>(elemmat(e, i, j));
 
-            // Filter rows to only those owned by this rank
-            std::vector<PetscInt> idx_local;
-            std::vector<PetscScalar> vals_local;
-
+            // 3. Filter rows to only those owned by this rank, and extract corresponding matrix rows
+            std::vector<PetscInt> idx_local;        // I_rows: Indices of owned rows
+            std::vector<PetscScalar> vals_local;     // V_vals: Data corresponding to owned rows (idx_local.size() * size)
+            
             for (size_t i = 0; i < size; ++i) {
+                // Check if the i-th global DOF for this element is owned by this rank
                 if (idx[i] >= rstart && idx[i] < rend) {
+                    
+                    // Add the global DOF index to the owned row list
                     idx_local.push_back(idx[i]);
+
+                    // Copy the ENTIRE i-th row of the element matrix (size columns)
+                    // The row starts at index i * size in the flat 'vals' array
+                    size_t start_index = i * size;
+                    
+                    // Copy 'size' columns from the element matrix into vals_local
+                    vals_local.insert(vals_local.end(), 
+                                    vals.begin() + start_index, 
+                                    vals.begin() + start_index + size);
                 }
             }
 
-            // Skip if no owned DOFs
+            // Skip if no owned DOFs in this element
             if (idx_local.empty()) continue;
 
-            // Insert into PETSc matrix
+            // 4. Insert into PETSc matrix (Only for the owned rows)
             PetscErrorCode ierr = MatSetValues(m_A,
-                                            static_cast<PetscInt>(idx_local.size()),
-                                            idx_local.data(),
-                                            static_cast<PetscInt>(size),
-                                            idx.data(),
-                                            vals.data(),
-                                            ADD_VALUES);
+                                                static_cast<PetscInt>(idx_local.size()), // N_rows: Count of owned rows
+                                                idx_local.data(),                         // I_rows: Global indices of owned rows
+                                                static_cast<PetscInt>(size),             // N_cols: Count of ALL element DOFs/columns
+                                                idx.data(),                               // J_cols: Global indices of ALL element columns
+                                                vals_local.data(),                        // V_vals: Filtered data for owned rows
+                                                ADD_VALUES);
             CHKERRABORT(PETSC_COMM_WORLD, ierr);
 
             #ifdef DEBUG_ASSEMBLE
             if(rank == 0) {
-                std::cout << "Element " << e << " inserted idx: ";
-                for(auto v : idx_local) std::cout << v << " ";
-                std::cout << std::endl;
+                std::cout << "Element " << e << " inserted " << idx_local.size() << " rows." << std::endl;
             }
             #endif
         }
@@ -381,21 +425,37 @@ private:
     }
 
     // Convert Eigen sparse -> PETSc Mat (creates a SeqAIJ/MPiAIJ depending on communicator)
-    PetscErrorCode EigenToPETScMat(const Eigen::SparseMatrix<double>& eigen_mat, Mat* outMat) {
+    PetscErrorCode EigenToPETScMat(
+    const Eigen::SparseMatrix<double>& eigen_mat, 
+    Mat* outMat, 
+    // New parameter: Pass PETSC_DECIDE to use the default partitioning, 
+    // or a specific size (like the local size of m_IS_d).
+    PetscInt local_rows_override = PETSC_DECIDE) 
+    {
         PetscErrorCode ierr;
         PetscInt rows = (PetscInt)eigen_mat.rows();
         PetscInt cols = (PetscInt)eigen_mat.cols();
 
-        // Count nonzeros per row
+        // Count nonzeros per row (rest of the preallocation logic is the same)
         std::vector<PetscInt> nnz_per_row(rows, 0);
         for (int k = 0; k < eigen_mat.outerSize(); ++k)
             for (Eigen::SparseMatrix<double>::InnerIterator it(eigen_mat, k); it; ++it)
                 nnz_per_row[it.row()]++;
         PetscInt max_nnz_row = *std::max_element(nnz_per_row.begin(), nnz_per_row.end());
 
-        // --- Create parallel matrix (MPIAIJ) even for 1 rank ---
+        // --- Create parallel matrix (MPIAIJ) ---
         ierr = MatCreate(PETSC_COMM_WORLD, outMat); CHKERRQ(ierr);
-        ierr = MatSetSizes(*outMat, PETSC_DECIDE, PETSC_DECIDE, rows, cols); CHKERRQ(ierr);
+        
+        // Core Change: Use the override for local rows
+        PetscInt local_rows = (local_rows_override == PETSC_DECIDE) ? PETSC_DECIDE : local_rows_override;
+        PetscInt local_cols = PETSC_DECIDE; // Keep default partitioning for columns
+
+        ierr = MatSetSizes(*outMat, 
+                        local_rows,      // Use local_rows_override for local rows
+                        local_cols,      // Use PETSC_DECIDE for local columns
+                        rows, 
+                        cols); CHKERRQ(ierr);
+        
         ierr = MatSetType(*outMat, MATMPIAIJ); CHKERRQ(ierr);
         ierr = MatMPIAIJSetPreallocation(*outMat, max_nnz_row, NULL, max_nnz_row, NULL); CHKERRQ(ierr);
         ierr = MatSetUp(*outMat); CHKERRQ(ierr);
@@ -417,53 +477,93 @@ private:
 
     void initialize_index_sets(MPI_Comm comm = PETSC_COMM_WORLD) {
         PetscErrorCode ierr;
-        int rank, size;        
-        ierr = MPI_Comm_rank(comm, &rank); CHKERRABORT(comm, ierr);
-        ierr = MPI_Comm_size(comm, &size); CHKERRABORT(comm, ierr);
+        PetscInt rank, size;
+        MPI_Comm_rank(comm, &rank);
+        MPI_Comm_size(comm, &size);
 
-        // Get ownership range of the global matrix/vector
-        PetscInt rstart, rend;
-        ierr = MPI_Comm_rank(comm, &rank); CHKERRABORT(comm, ierr);
+        // Global start indices for each block, based on your implicit ordering:
+        // Global ordering: [U block] [P block] [D block]
+        const PetscInt u_start_global = 0;
+        const PetscInt p_start_global = (PetscInt)m_nnu;
+        const PetscInt d_start_global = (PetscInt)m_nni; // m_nni is assumed to be u_end + p_end
+
+        // --- Helper function to determine ownership range for a block ---
+        auto get_block_ownership = [&](PetscInt global_size, PetscInt& rstart, PetscInt& rend) {
+            if (global_size == 0) {
+                rstart = 0;
+                rend = 0;
+                return (PetscErrorCode)0;
+            }
+            Vec temp_vec = nullptr;
+            ierr = VecCreate(comm, &temp_vec); CHKERRQ(ierr);
+            ierr = VecSetSizes(temp_vec, PETSC_DECIDE, global_size); CHKERRQ(ierr);
+            ierr = VecSetUp(temp_vec); CHKERRQ(ierr); // Ensure it's partitioned
+            ierr = VecGetOwnershipRange(temp_vec, &rstart, &rend); CHKERRQ(ierr);
+            ierr = VecDestroy(&temp_vec); CHKERRQ(ierr);
+            return ierr;
+        };
+
+        // --- 1. Partition U DOFs (Global Size m_nnu) ---
+        PetscInt u_rstart, u_rend;
+        ierr = get_block_ownership((PetscInt)m_nnu, u_rstart, u_rend); CHKERRABORT(comm, ierr);
+        ierr = ISCreateStride(comm,                
+                            u_rend - u_rstart,              // Local size
+                            u_start_global + u_rstart,      // Starting global index (e.g., 0 + 0)
+                            1, &m_IS_u); CHKERRABORT(comm, ierr);
+
+        // --- 2. Partition P DOFs (Global Size m_nnp = m_nni - m_nnu) ---
+        PetscInt p_rstart, p_rend;
+        PetscInt m_nnp = (PetscInt)m_nni - (PetscInt)m_nnu;
+        ierr = get_block_ownership(m_nnp, p_rstart, p_rend); CHKERRABORT(comm, ierr);
+        ierr = ISCreateStride(comm,                
+                            p_rend - p_rstart,              // Local size
+                            p_start_global + p_rstart,      // Starting global index (m_nnu + rstart)
+                            1, &m_IS_p); CHKERRABORT(comm, ierr);
+
+        // --- 3. Partition D DOFs (Global Size m_nnd) ---
+        PetscInt d_rstart, d_rend;
+        ierr = get_block_ownership((PetscInt)m_nnd, d_rstart, d_rend); CHKERRABORT(comm, ierr);
+        ierr = ISCreateStride(comm,                
+                            d_rend - d_rstart,              // Local size
+                            d_start_global + d_rstart,      // Starting global index (m_nni + rstart)
+                            1, &m_IS_d); CHKERRABORT(comm, ierr);
         
-        // Create index vectors for local ownership only
-        std::vector<PetscInt> iu_local, id_local, ip_local;
+        // --- Sanity checks and Scatter Creation (Retain original logic, using new IS) ---
+        PetscInt local_u, local_d, local_p;
+        ISGetLocalSize(m_IS_u, &local_u);
+        ISGetLocalSize(m_IS_d, &local_d); // THIS IS NOW NON-ZERO ON RANK 0!
+        ISGetLocalSize(m_IS_p, &local_p);
 
-        // m_iiu, m_iid, m_iip contain global DOF indices
-        for (size_t k = 0; k < m_nnu; ++k) {
-            PetscInt idx = static_cast<PetscInt>(m_iiu(k));
-            iu_local.push_back(idx);
+        PetscInt sum_u = 0, sum_d = 0, sum_p = 0;
+        MPI_Allreduce(&local_u, &sum_u, 1, MPI_INT, MPI_SUM, comm);
+        MPI_Allreduce(&local_d, &sum_d, 1, MPI_INT, MPI_SUM, comm);
+        MPI_Allreduce(&local_p, &sum_p, 1, MPI_INT, MPI_SUM, comm);
+
+        if (rank == 0) {
+            PetscPrintf(comm, "DEBUG: Per-rank IS local sizes (sum across ranks): u=%D (expected %zu), d=%D (expected %zu), p=%D (expected %zu)\n",
+                        sum_u, m_nnu, sum_d, m_nnd, sum_p, (size_t)m_nnp);
         }
-        for (size_t k = 0; k < m_nnd; ++k) {
-            PetscInt idx = static_cast<PetscInt>(m_iid(k));
-            id_local.push_back(idx);
-        }
-        for (size_t k = 0; k < m_nnp; ++k) {
-            PetscInt idx = static_cast<PetscInt>(m_iip(k));
-            ip_local.push_back(idx);
-        }
 
-        // Create global index sets (can be full IS)
-        ierr = ISCreateGeneral(comm, iu_local.size(), iu_local.data(), PETSC_COPY_VALUES, &m_IS_u); CHKERRABORT(comm, ierr);
-        ierr = ISCreateGeneral(comm, id_local.size(), id_local.data(), PETSC_COPY_VALUES, &m_IS_d); CHKERRABORT(comm, ierr);
-        ierr = ISCreateGeneral(comm, ip_local.size(), ip_local.data(), PETSC_COPY_VALUES, &m_IS_p); CHKERRABORT(comm, ierr);
+        // Optional: print min/max index in each IS per-rank
+        PetscInt minidx, maxidx;
+        if (local_u) { ISGetMinMax(m_IS_u, &minidx, &maxidx); PetscPrintf(comm, "Rank %D IS_u min/max = %D / %D\n", rank, minidx, maxidx); }
+        if (local_d) { ISGetMinMax(m_IS_d, &minidx, &maxidx); PetscPrintf(comm, "Rank %D IS_d min/max = %D / %D\n", rank, minidx, maxidx); }
+        if (local_p) { ISGetMinMax(m_IS_p, &minidx, &maxidx); PetscPrintf(comm, "Rank %D IS_p min/max = %D / %D\n", rank, minidx, maxidx); }
 
-        // Determine local sizes for VecScatter
-        PetscInt n_u_local = iu_local.size();
-        PetscInt n_d_local = id_local.size();
 
-        // Temporary sequential vectors (local only)
-        Vec tmp_u, tmp_d, x_global_dummy;
-        ierr = VecCreateSeq(PETSC_COMM_SELF, n_u_local, &tmp_u); CHKERRABORT(comm, ierr);
-        ierr = VecCreateSeq(PETSC_COMM_SELF, n_d_local, &tmp_d); CHKERRABORT(comm, ierr);
+        // Create tmp seq vectors sized to the local block counts for scatters
+        Vec tmp_u = nullptr, tmp_d = nullptr;
+        ierr = VecCreateSeq(PETSC_COMM_SELF, local_u, &tmp_u); CHKERRABORT(comm, ierr);
+        ierr = VecCreateSeq(PETSC_COMM_SELF, local_d, &tmp_d); CHKERRABORT(comm, ierr);
 
-        // Global distributed vector
+        // create global dummy vector so the scatters know global layout
+        Vec x_global_dummy = nullptr;
         ierr = VecCreateMPI(comm, PETSC_DECIDE, (PetscInt)m_ndof, &x_global_dummy); CHKERRABORT(comm, ierr);
 
-        // Create scatter from local seq vectors to global vector using IS
+        // Create the scatters (now using the correctly partitioned m_IS_d)
         ierr = VecScatterCreate(tmp_u, NULL, x_global_dummy, m_IS_u, &m_scatter_u); CHKERRABORT(comm, ierr);
         ierr = VecScatterCreate(tmp_d, NULL, x_global_dummy, m_IS_d, &m_scatter_d); CHKERRABORT(comm, ierr);
 
-        // Cleanup temporary vectors
         VecDestroy(&tmp_u);
         VecDestroy(&tmp_d);
         VecDestroy(&x_global_dummy);
