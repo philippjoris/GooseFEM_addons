@@ -36,9 +36,6 @@ void init_MatrixPartitionedTyings_PETSc(py::module& m)
         .def("data_Cdp", [](const GooseFEM::MatrixPartitionedTyings_PETSc &self){
             return py::capsule(self.data_Cdp());
         })
-        .def("data_ACuu", [](const GooseFEM::MatrixPartitionedTyings_PETSc &self){
-            return py::capsule(self.data_ACuu());
-        })
 
         // public methods
         .def("clear", &GooseFEM::MatrixPartitionedTyings_PETSc::clear,

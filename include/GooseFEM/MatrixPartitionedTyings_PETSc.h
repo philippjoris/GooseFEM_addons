@@ -53,9 +53,9 @@ private:
     Mat m_Cud = nullptr;  ///< transpose of Cdu
     Mat m_Cdp = nullptr;  ///< tying matrix (dependent rows, prescribed cols)
     Mat m_Cpd = nullptr;  ///< transpose of Cdp
-    Mat m_ACuu = nullptr; ///< condensed system matrix (optional)
-    Mat m_ACup = nullptr; ///< condensed system matrix (optional)
-    Mat m_Auu = nullptr, m_Aud = nullptr, m_Adu = nullptr, m_Add = nullptr;
+    // Mat m_ACuu = nullptr; ///< condensed system matrix (optional)
+    // Mat m_ACup = nullptr; ///< condensed system matrix (optional)
+    Mat m_Auu = nullptr, m_Aud = nullptr, m_Adu = nullptr, m_Add = nullptr, m_Aup = nullptr, m_Adp = nullptr;
     
 
     /* PETSc index sets and scatter contexts (add as members) */
@@ -109,13 +109,6 @@ public:
         GOOSEFEM_ASSERT(m_ndof == xt::amax(m_dofs)() + 1);
         
         int rank, size; MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
-        if (rank == 0) {
-            std::cout << "DEBUG: Cdu global dimensions (rows x cols): " 
-                    << Cdu.rows() << " x " << Cdu.cols() << std::endl;
-            std::cout << "DEBUG: Cdp global dimensions (rows x cols): " 
-                    << Cdp.rows() << " x " << Cdp.cols() << std::endl;
-            std::cout << "DEBUG: Derived m_ndof: " << m_ndof << std::endl;
-        }
 
         PetscErrorCode ierr;     
 
@@ -145,9 +138,6 @@ public:
         ierr = ISGetLocalSize(m_IS_d, &local_d_size); CHKERRABORT(PETSC_COMM_WORLD, ierr);
         ierr = ISGetLocalSize(m_IS_u, &local_u_size); CHKERRABORT(PETSC_COMM_WORLD, ierr);
         ierr = ISGetLocalSize(m_IS_p, &local_p_size); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-
-        PetscPrintf(PETSC_COMM_WORLD, "Rank %D: local_u_size=%D, local_d_size=%D, local_p_size=%D\n", 
-                    rank, local_u_size, local_d_size, local_p_size);
         
         ierr = EigenToPETScMat(Cdu, &m_Cdu, local_d_size); CHKERRABORT(PETSC_COMM_WORLD, ierr);
         ierr = EigenToPETScMat(Cdp, &m_Cdp, local_d_size); CHKERRABORT(PETSC_COMM_WORLD, ierr);
@@ -167,7 +157,7 @@ public:
     size_t ndof() const { return m_ndof; }
 
     // Accessors
-    const Mat& data_ACuu() const { return m_ACuu; }
+    // const Mat& data_ACuu() const { return m_ACuu; }
     const Mat& data_Cdu() const { return m_Cdu; }
     const Mat& data_Cdp() const { return m_Cdp; }
     const Mat& data_A() const { return m_A; }
@@ -204,56 +194,20 @@ public:
         return VecRestoreSubVector(vec_global, m_IS_p, &sub);
     }
 
+
     void scatter_solution(Vec X_u, Vec X_d, Vec& x_global) {
         PetscErrorCode ierr;
+        // PetscMPIInt rank;
+        // MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
+        
+        // 1. Scatter X_u (Unknown DOFs, local block vector) to x_global (MPI vector)
+        ierr = VecScatterBegin(this->m_scatter_u, X_u, x_global, INSERT_VALUES, SCATTER_FORWARD); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = VecScatterEnd(this->m_scatter_u, X_u, x_global, INSERT_VALUES, SCATTER_FORWARD); CHKERRABORT(PETSC_COMM_WORLD, ierr);
 
-        std::vector<PetscInt> idx;
-        std::vector<PetscScalar> vals;
+        // 2. Scatter X_d (Dependent DOFs, local block vector) to x_global (MPI vector)
+        ierr = VecScatterBegin(this->m_scatter_d, X_d, x_global, INSERT_VALUES, SCATTER_FORWARD); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = VecScatterEnd(this->m_scatter_d, X_d, x_global, INSERT_VALUES, SCATTER_FORWARD); CHKERRABORT(PETSC_COMM_WORLD, ierr);
 
-        PetscScalar val;
-        for (size_t m = 0; m < this->m_nnode; ++m) {
-            for (size_t i = 0; i < this->m_ndim; ++i) {
-                PetscInt gdof = (PetscInt)this->m_dofs(m,i);
-
-                if (gdof < (PetscInt)this->m_nnu) {
-                    ierr = VecGetValues(X_u, 1, &gdof, &val); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-                    idx.push_back(gdof);
-                    vals.push_back(val);
-                } 
-                else if (gdof < (PetscInt)this->m_nni) {
-                    ierr = VecGetValues(x_global, 1, &gdof, &val); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-                    idx.push_back(gdof);
-                    vals.push_back(val);
-                }
-                else { 
-                    PetscInt local_d = gdof - this->m_nni;
-                    ierr = VecGetValues(X_d, 1, &local_d, &val); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-                    idx.push_back(gdof);
-                    vals.push_back(val);
-                }
-            }
-        }
-
-        // PetscPrintf(PETSC_COMM_WORLD, "Collected Global DOFs (idx) on Rank %d:\n", 0); // Assuming m_rank is available
- 
-        // for (size_t k = 0; k < vals.size(); ++k) {
-        //     // Print 10 indices per line for readability
-        //     if (k % 10 == 0) {
-        //         PetscPrintf(PETSC_COMM_WORLD, "\n");
-        //     }
-        //     PetscPrintf(PETSC_COMM_WORLD, "%4f ", vals[k]);
-        // }
-        // PetscPrintf(PETSC_COMM_WORLD, "\n");
-
-        std::iota(idx.begin(), idx.end(), 0); // usually 0 or local offset
-        ierr = VecSetValues(x_global, idx.size(), idx.data(), vals.data(), INSERT_VALUES); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        // ierr = VecSetValues(x_global, vals.size(), NULL, vals.data(), INSERT_VALUES);
-        ierr = VecAssemblyBegin(x_global); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = VecAssemblyEnd(x_global); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-
-        // PetscScalar max_val;
-        // VecMax(x_global, NULL, &max_val);
-        // PetscPrintf(PETSC_COMM_WORLD, "Max of push-back vector x_py = %g\n", PetscRealPart(max_val));
     }
 
     // Assemble element matrices into m_A
@@ -262,15 +216,6 @@ public:
     {
         // Basic checks
         size_t nelem = elemmat.shape()[0];
-
-        PetscInt global_nelem;
-        MPI_Allreduce(&nelem, &global_nelem, 1, MPI_INT, MPI_SUM, PETSC_COMM_WORLD);
-        int rank;
-        MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
-
-        if (rank == 0) {
-            PetscPrintf(PETSC_COMM_WORLD, "DEBUG: Local Element Count: %zu, Global Element Sum: %D\n", nelem, global_nelem);
-        }
 
         size_t nnodes_per_elem = conn_elem.shape()[1];
         size_t size = nnodes_per_elem * m_ndim; // Element matrix size (size x size)
@@ -415,8 +360,8 @@ private:
         if (m_A) MatDestroy(&m_A);
         if (m_Cdu) MatDestroy(&m_Cdu);
         if (m_Cdp) MatDestroy(&m_Cdp);
-        if (m_ACuu) MatDestroy(&m_ACuu);
-        if (m_ACup) MatDestroy(&m_ACup);
+        if (m_Auu) MatDestroy(&m_Auu);
+        if (m_Aup) MatDestroy(&m_Aup);
         if (m_IS_u) ISDestroy(&m_IS_u);
         if (m_IS_d) ISDestroy(&m_IS_d);
         if (m_IS_p) ISDestroy(&m_IS_p);
@@ -533,22 +478,6 @@ private:
         ISGetLocalSize(m_IS_u, &local_u);
         ISGetLocalSize(m_IS_d, &local_d); // THIS IS NOW NON-ZERO ON RANK 0!
         ISGetLocalSize(m_IS_p, &local_p);
-
-        PetscInt sum_u = 0, sum_d = 0, sum_p = 0;
-        MPI_Allreduce(&local_u, &sum_u, 1, MPI_INT, MPI_SUM, comm);
-        MPI_Allreduce(&local_d, &sum_d, 1, MPI_INT, MPI_SUM, comm);
-        MPI_Allreduce(&local_p, &sum_p, 1, MPI_INT, MPI_SUM, comm);
-
-        if (rank == 0) {
-            PetscPrintf(comm, "DEBUG: Per-rank IS local sizes (sum across ranks): u=%D (expected %zu), d=%D (expected %zu), p=%D (expected %zu)\n",
-                        sum_u, m_nnu, sum_d, m_nnd, sum_p, (size_t)m_nnp);
-        }
-
-        // Optional: print min/max index in each IS per-rank
-        PetscInt minidx, maxidx;
-        if (local_u) { ISGetMinMax(m_IS_u, &minidx, &maxidx); PetscPrintf(comm, "Rank %D IS_u min/max = %D / %D\n", rank, minidx, maxidx); }
-        if (local_d) { ISGetMinMax(m_IS_d, &minidx, &maxidx); PetscPrintf(comm, "Rank %D IS_d min/max = %D / %D\n", rank, minidx, maxidx); }
-        if (local_p) { ISGetMinMax(m_IS_p, &minidx, &maxidx); PetscPrintf(comm, "Rank %D IS_p min/max = %D / %D\n", rank, minidx, maxidx); }
 
 
         // Create tmp seq vectors sized to the local block counts for scatters
