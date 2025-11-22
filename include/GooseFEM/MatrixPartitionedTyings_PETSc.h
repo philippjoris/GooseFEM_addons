@@ -53,8 +53,8 @@ private:
     Mat m_Cud = nullptr;  ///< transpose of Cdu
     Mat m_Cdp = nullptr;  ///< tying matrix (dependent rows, prescribed cols)
     Mat m_Cpd = nullptr;  ///< transpose of Cdp
-    // Mat m_ACuu = nullptr; ///< condensed system matrix (optional)
-    // Mat m_ACup = nullptr; ///< condensed system matrix (optional)
+    Mat m_ACuu = nullptr; ///< condensed system matrix (optional)
+    Mat m_ACup = nullptr; ///< condensed system matrix (optional)
     Mat m_Auu = nullptr, m_Aud = nullptr, m_Adu = nullptr, m_Add = nullptr, m_Aup = nullptr, m_Adp = nullptr;
     
 
@@ -121,8 +121,8 @@ public:
         ierr = MatSetSizes(m_A, PETSC_DECIDE, PETSC_DECIDE,
                            (PetscInt)m_ndof, (PetscInt)m_ndof); CHKERRABORT(PETSC_COMM_WORLD, ierr);
         
-        PetscInt d_nz = 50;
-        PetscInt o_nz = 50;
+        PetscInt d_nz = 54;
+        PetscInt o_nz = 27;
 
         ierr = MatMPIAIJSetPreallocation(m_A, d_nz, NULL, o_nz, NULL); CHKERRABORT(PETSC_COMM_WORLD, ierr);
         ierr = MatSetOption(m_A, MAT_NEW_NONZERO_ALLOCATION_ERR, PETSC_FALSE); CHKERRABORT(PETSC_COMM_WORLD, ierr);
@@ -194,6 +194,13 @@ public:
         return VecRestoreSubVector(vec_global, m_IS_p, &sub);
     }
 
+    std::pair<PetscInt, PetscInt> getOwnershipRange() const {
+        PetscInt rstart = 0, rend = 0;
+        PetscErrorCode ierr = MatGetOwnershipRange(m_A, &rstart, &rend);
+        CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        return {rstart, rend};
+    }
+
 
     void scatter_solution(Vec X_u, Vec X_d, Vec& x_global) {
         PetscErrorCode ierr;
@@ -214,74 +221,61 @@ public:
     template <class T_ElemMat, class T_Conn>
     void assemble(const T_ElemMat& elemmat, const T_Conn& conn_elem)
     {
-        // Basic checks
         size_t nelem = elemmat.shape()[0];
-
         size_t nnodes_per_elem = conn_elem.shape()[1];
-        size_t size = nnodes_per_elem * m_ndim; // Element matrix size (size x size)
+        size_t size = nnodes_per_elem * m_ndim; // DOFs per element
         GOOSEFEM_ASSERT(elemmat.shape()[1] == size && "elemmat row mismatch");
         GOOSEFEM_ASSERT(elemmat.shape()[2] == size && "elemmat col mismatch");
 
-
-        // Get the ownership range of this matrix on this rank
+        // Get ownership range of this matrix on this rank
         PetscInt rstart, rend;
         MatGetOwnershipRange(m_A, &rstart, &rend);
 
         for (ptrdiff_t e = 0; e < (ptrdiff_t)nelem; ++e) {
-            
-            // 1. Global DOF indices for this element (used for J_cols)
+
+            // 1. Compute global DOF indices for this element
             std::vector<PetscInt> idx(size);
-            for (ptrdiff_t n = 0; n < (ptrdiff_t)nnodes_per_elem; ++n) {
-                for (ptrdiff_t j = 0; j < (ptrdiff_t)m_ndim; ++j) {
+            for (ptrdiff_t n = 0; n < (ptrdiff_t)nnodes_per_elem; ++n)
+                for (ptrdiff_t j = 0; j < (ptrdiff_t)m_ndim; ++j)
                     idx[n * m_ndim + j] = static_cast<PetscInt>(m_dofs(conn_elem(e, n), j));
-                }
-            }
 
-            // 2. Copy full element matrix into contiguous vals (size x size)
-            std::vector<PetscScalar> vals(size * size);
+            // 2. Filter rows owned by this rank
+            std::vector<PetscInt> idx_local;
+            idx_local.reserve(size); // at most size rows
             for (size_t i = 0; i < size; ++i)
-                for (size_t j = 0; j < size; ++j)
-                    vals[i * size + j] = static_cast<PetscScalar>(elemmat(e, i, j));
-
-            // 3. Filter rows to only those owned by this rank, and extract corresponding matrix rows
-            std::vector<PetscInt> idx_local;        // I_rows: Indices of owned rows
-            std::vector<PetscScalar> vals_local;     // V_vals: Data corresponding to owned rows (idx_local.size() * size)
-            
-            for (size_t i = 0; i < size; ++i) {
-                // Check if the i-th global DOF for this element is owned by this rank
-                if (idx[i] >= rstart && idx[i] < rend) {
-                    
-                    // Add the global DOF index to the owned row list
+                if (idx[i] >= rstart && idx[i] < rend)
                     idx_local.push_back(idx[i]);
 
-                    // Copy the ENTIRE i-th row of the element matrix (size columns)
-                    // The row starts at index i * size in the flat 'vals' array
-                    size_t start_index = i * size;
-                    
-                    // Copy 'size' columns from the element matrix into vals_local
-                    vals_local.insert(vals_local.end(), 
-                                    vals.begin() + start_index, 
-                                    vals.begin() + start_index + size);
-                }
-            }
-
-            // Skip if no owned DOFs in this element
+            // Skip element if no rows are owned locally
             if (idx_local.empty()) continue;
 
-            // 4. Insert into PETSc matrix (Only for the owned rows)
+            // 3. Preallocate vals_local for the owned rows
+            std::vector<PetscScalar> vals_local;
+            vals_local.reserve(idx_local.size() * size);
+
+            // Copy only the rows owned by this rank
+            for (size_t local_row = 0; local_row < idx_local.size(); ++local_row) {
+                size_t i = std::distance(idx.begin(),
+                                        std::find(idx.begin(), idx.end(), idx_local[local_row]));
+                for (size_t j = 0; j < size; ++j)
+                    vals_local.push_back(static_cast<PetscScalar>(elemmat(e, i, j)));
+            }
+
+            // 4. Insert into PETSc matrix (all columns, only owned rows)
             PetscErrorCode ierr = MatSetValues(m_A,
-                                                static_cast<PetscInt>(idx_local.size()), // N_rows: Count of owned rows
-                                                idx_local.data(),                         // I_rows: Global indices of owned rows
-                                                static_cast<PetscInt>(size),             // N_cols: Count of ALL element DOFs/columns
-                                                idx.data(),                               // J_cols: Global indices of ALL element columns
-                                                vals_local.data(),                        // V_vals: Filtered data for owned rows
-                                                ADD_VALUES);
+                                            static_cast<PetscInt>(idx_local.size()),
+                                            idx_local.data(),
+                                            static_cast<PetscInt>(size),
+                                            idx.data(),
+                                            vals_local.data(),
+                                            ADD_VALUES);
             CHKERRABORT(PETSC_COMM_WORLD, ierr);
 
             #ifdef DEBUG_ASSEMBLE
-            if(rank == 0) {
+            int rank;
+            MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
+            if(rank == 0)
                 std::cout << "Element " << e << " inserted " << idx_local.size() << " rows." << std::endl;
-            }
             #endif
         }
     }

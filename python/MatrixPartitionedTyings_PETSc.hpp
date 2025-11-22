@@ -36,6 +36,12 @@ void init_MatrixPartitionedTyings_PETSc(py::module& m)
         .def("data_Cdp", [](const GooseFEM::MatrixPartitionedTyings_PETSc &self){
             return py::capsule(self.data_Cdp());
         })
+        .def("getOwnershipRange",
+        [](const GooseFEM::MatrixPartitionedTyings_PETSc &self) {
+            auto r = self.getOwnershipRange();
+            return py::make_tuple(r.first, r.second); // returns (rstart, rend)
+        },
+        "Return the global row indices owned by this MPI rank")
 
         // public methods
         .def("clear", &GooseFEM::MatrixPartitionedTyings_PETSc::clear,

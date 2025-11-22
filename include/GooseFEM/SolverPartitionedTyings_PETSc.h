@@ -34,7 +34,22 @@ private:
     }
 
 public:
-    SolverPartitionedTyings_PETSc() = default;
+    // SolverPartitionedTyings_PETSc() = default;
+    SolverPartitionedTyings_PETSc(){
+        PetscErrorCode ierr;
+
+        // Create and setup KSP (once)
+        ierr = KSPCreate(PETSC_COMM_WORLD, &m_ksp); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = KSPSetType(m_ksp, KSPCG); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+
+        PC pc;
+        ierr = KSPGetPC(m_ksp, &pc); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = PCSetType(pc, PCGAMG); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+
+        ierr = KSPSetTolerances(m_ksp, 1e-8, PETSC_DEFAULT, PETSC_DEFAULT, PETSC_DEFAULT); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = KSPSetFromOptions(m_ksp); CHKERRABORT(PETSC_COMM_WORLD, ierr);        
+    }
+
     ~SolverPartitionedTyings_PETSc() { destroyKSP(); }
 
     // ---- Factorization step ----
@@ -53,64 +68,91 @@ public:
         // Clean up old condensed matrices & KSP
         // if (A.m_ACuu) { MatDestroy(&A.m_ACuu); A.m_ACuu = nullptr; }
         // if (A.m_ACup) { MatDestroy(&A.m_ACup); A.m_ACup = nullptr; }
-        destroyKSP();
+        // destroyKSP();
 
         // --- Compute transpose of C_du once ---
-        static Mat C_du_T = nullptr;
-        if (!C_du_T) {
-            ierr = MatTranspose(A.m_Cdu, MAT_INITIAL_MATRIX, &C_du_T); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        }
         PetscInt rank; 
         MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
 
-        ierr = MatCreateSubMatrix(A.m_A, A.m_IS_u, A.m_IS_u, MAT_INITIAL_MATRIX, &A.m_Auu); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = MatCreateSubMatrix(A.m_A, A.m_IS_u, A.m_IS_d, MAT_INITIAL_MATRIX, &A.m_Aud); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = MatCreateSubMatrix(A.m_A, A.m_IS_d, A.m_IS_u, MAT_INITIAL_MATRIX, &A.m_Adu); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = MatCreateSubMatrix(A.m_A, A.m_IS_d, A.m_IS_d, MAT_INITIAL_MATRIX, &A.m_Add); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-
+        if (!A.m_Auu) {
+            ierr = MatCreateSubMatrix(A.m_A, A.m_IS_u, A.m_IS_u, MAT_INITIAL_MATRIX, &A.m_Auu); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        }
+        else {
+             ierr = MatCreateSubMatrix(A.m_A, A.m_IS_u, A.m_IS_u, MAT_REUSE_MATRIX, &A.m_Auu); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        }
+        if (!A.m_Aud) {
+            ierr = MatCreateSubMatrix(A.m_A, A.m_IS_u, A.m_IS_d, MAT_INITIAL_MATRIX, &A.m_Aud); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        }
+        else {
+             ierr = MatCreateSubMatrix(A.m_A, A.m_IS_u, A.m_IS_d, MAT_REUSE_MATRIX, &A.m_Aud); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        }
+        if (!A.m_Adu) {
+            ierr = MatCreateSubMatrix(A.m_A, A.m_IS_d, A.m_IS_u, MAT_INITIAL_MATRIX, &A.m_Adu); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        }
+        else {
+             ierr = MatCreateSubMatrix(A.m_A, A.m_IS_d, A.m_IS_u, MAT_REUSE_MATRIX, &A.m_Adu); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        }
+        if (!A.m_Add) {
+            ierr = MatCreateSubMatrix(A.m_A, A.m_IS_d, A.m_IS_d, MAT_INITIAL_MATRIX, &A.m_Add); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        }
+        else {
+             ierr = MatCreateSubMatrix(A.m_A, A.m_IS_d, A.m_IS_d, MAT_REUSE_MATRIX, &A.m_Add); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        }
+        if (!A.m_Aup) {
+            ierr = MatCreateSubMatrix(A.m_A, A.m_IS_u, A.m_IS_p, MAT_INITIAL_MATRIX, &A.m_Aup); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        }
+        else {
+             ierr = MatCreateSubMatrix(A.m_A, A.m_IS_u, A.m_IS_p, MAT_REUSE_MATRIX, &A.m_Aup); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        }
+        if (!A.m_Adp) {
+            ierr = MatCreateSubMatrix(A.m_A, A.m_IS_d, A.m_IS_p, MAT_INITIAL_MATRIX, &A.m_Adp); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        }
+        else {
+             ierr = MatCreateSubMatrix(A.m_A, A.m_IS_d, A.m_IS_p,MAT_REUSE_MATRIX, &A.m_Adp); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        }                
+                                
+        
         
         // --- Compute condensed matrix A'_uu = A_uu + A_ud*C_du + C_du^T*A_du + C_du^T*A_dd*C_du ---
         Mat temp1 = nullptr, temp2 = nullptr, temp3 = nullptr, inter = nullptr;
         ierr = MatMatMult(A.m_Aud, A.m_Cdu, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &temp1); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = MatMatMult(C_du_T, A.m_Adu, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &temp2); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = MatMatMult(C_du_T, A.m_Add, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &inter); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatMatMult(A.m_Cud, A.m_Adu, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &temp2); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatMatMult(A.m_Cud, A.m_Add, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &inter); CHKERRABORT(PETSC_COMM_WORLD, ierr);
         ierr = MatMatMult(inter, A.m_Cdu, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &temp3); CHKERRABORT(PETSC_COMM_WORLD, ierr);
 
+        
+        Mat ACuu = nullptr, ACup = nullptr;   
+        ierr = MatDuplicate(A.m_Auu, MAT_COPY_VALUES, &ACuu); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatAXPY(ACuu, 1.0, temp1, DIFFERENT_NONZERO_PATTERN); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatAXPY(ACuu, 1.0, temp2, DIFFERENT_NONZERO_PATTERN); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatAXPY(ACuu, 1.0, temp3, DIFFERENT_NONZERO_PATTERN); CHKERRABORT(PETSC_COMM_WORLD, ierr);
 
-        // ierr = MatDuplicate(A.m_Auu, MAT_COPY_VALUES, &A.m_ACuu); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = MatAXPY(A.m_Auu, 1.0, temp1, DIFFERENT_NONZERO_PATTERN); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = MatAXPY(A.m_Auu, 1.0, temp2, DIFFERENT_NONZERO_PATTERN); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = MatAXPY(A.m_Auu, 1.0, temp3, DIFFERENT_NONZERO_PATTERN); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-
-        // --- Compute condensed coupling matrix A'_up = A_up + A_ud*C_dp + C_du^T*A_dp + C_du^T*A_dd*C_dp ---
-        // Mat A_up = nullptr, A_dp = nullptr;
-        ierr = MatCreateSubMatrix(A.m_A, A.m_IS_u, A.m_IS_p, MAT_INITIAL_MATRIX, &A.m_Aup); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = MatCreateSubMatrix(A.m_A, A.m_IS_d, A.m_IS_p, MAT_INITIAL_MATRIX, &A.m_Adp); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        // --- Compute condensed coupling matrix A'_up = A_up + A_ud*C_dp + C_du^T*A_dp + C_du^T*A_dd*C_dp ---     
 
         Mat tempA1 = nullptr, tempA2 = nullptr, tempA3 = nullptr, inter2 = nullptr;
         ierr = MatMatMult(A.m_Aud, A.m_Cdp, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &tempA1); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = MatMatMult(C_du_T, A.m_Adp, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &tempA2); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = MatMatMult(C_du_T, A.m_Add, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &inter2); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatMatMult(A.m_Cud, A.m_Adp, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &tempA2); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatMatMult(A.m_Cud, A.m_Add, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &inter2); CHKERRABORT(PETSC_COMM_WORLD, ierr);
         ierr = MatMatMult(inter2, A.m_Cdp, MAT_INITIAL_MATRIX, PETSC_DEFAULT, &tempA3); CHKERRABORT(PETSC_COMM_WORLD, ierr);
 
-        // ierr = MatDuplicate(A_up, MAT_COPY_VALUES, &A.m_ACup); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = MatAXPY(A.m_Aup, 1.0, tempA1, DIFFERENT_NONZERO_PATTERN); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = MatAXPY(A.m_Aup, 1.0, tempA2, DIFFERENT_NONZERO_PATTERN); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = MatAXPY(A.m_Aup, 1.0, tempA3, DIFFERENT_NONZERO_PATTERN); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatDuplicate(A.m_Aup, MAT_COPY_VALUES, &ACup); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatAXPY(ACup, 1.0, tempA1, DIFFERENT_NONZERO_PATTERN); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatAXPY(ACup, 1.0, tempA2, DIFFERENT_NONZERO_PATTERN); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatAXPY(ACup, 1.0, tempA3, DIFFERENT_NONZERO_PATTERN); CHKERRABORT(PETSC_COMM_WORLD, ierr);
 
         // --- Set up KSP solver on A'_uu ---
-        ierr = KSPCreate(PETSC_COMM_WORLD, &m_ksp); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = KSPSetOperators(m_ksp, A.m_Auu, A.m_Auu); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = KSPSetType(m_ksp, KSPCG); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        // ierr = KSPCreate(PETSC_COMM_WORLD, &m_ksp); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = KSPSetOperators(m_ksp, ACuu, ACuu); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        // ierr = KSPSetType(m_ksp, KSPCG); CHKERRABORT(PETSC_COMM_WORLD, ierr);
 
-        PC pc;
-        ierr = KSPGetPC(m_ksp, &pc); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = PCSetType(pc, PCGAMG); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = KSPSetTolerances(m_ksp, 1e-8, PETSC_DEFAULT, PETSC_DEFAULT, PETSC_DEFAULT); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = KSPSetFromOptions(m_ksp); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        // PC pc;
+        // ierr = KSPGetPC(m_ksp, &pc); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        // ierr = PCSetType(pc, PCGAMG); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        // ierr = KSPSetTolerances(m_ksp, 1e-8, PETSC_DEFAULT, PETSC_DEFAULT, PETSC_DEFAULT); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        // ierr = KSPSetFromOptions(m_ksp); CHKERRABORT(PETSC_COMM_WORLD, ierr);
 
         // --- Cleanup temporaries ---
-        // MatDestroy(&A_up); MatDestroy(&A_dp);
+        MatDestroy(&ACup); MatDestroy(&ACuu);
         MatDestroy(&temp1); MatDestroy(&temp2); MatDestroy(&temp3); MatDestroy(&inter);
         MatDestroy(&tempA1); MatDestroy(&tempA2); MatDestroy(&tempA3); MatDestroy(&inter2);
 
@@ -223,7 +265,7 @@ public:
         A.scatter_solution(X_u, X_d, x);
 
         // --- MANDATORY: Retrieve Final Solution to x_py ---
-        /*Vec x_seq_all;
+        Vec x_seq_all;
         VecScatter scatter_all;
         VecScatterCreateToAll(x, &scatter_all, &x_seq_all); // EVERY rank receives full x
         VecScatterBegin(scatter_all, x, x_seq_all, INSERT_VALUES, SCATTER_FORWARD);
@@ -241,9 +283,9 @@ public:
         }
         VecRestoreArrayRead(x_seq_all, &x_const);
         VecScatterDestroy(&scatter_all);
-        VecDestroy(&x_seq_all); */
+        VecDestroy(&x_seq_all); 
 
-        Vec x_seq = nullptr;
+        /* Vec x_seq = nullptr;
         VecScatter scatter;
         VecScatterCreateToZero(x, &scatter, &x_seq);
 
@@ -265,25 +307,8 @@ public:
         }
 
         VecScatterDestroy(&scatter);
-        VecDestroy(&x_seq);
+        VecDestroy(&x_seq); */
         // ------------------------------------------------- */
-
-        // PetscInt rstart, rend;
-        // PetscScalar *x_array;
-        // // ierr = VecGetOwnershipRange(x, &rstart, &rend); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        // ierr = VecGetArray(x, &x_array); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        // PetscInt local_size = rend - rstart;
-        // for (PetscInt i = 0; i < local_size; ++i) {
-        //     // x_array[i] is the local value, (rstart + i) is the global index
-        //     x_py(rstart + i) = x_array[i]; 
-        // }
-        // // Loop to copy x_array[i] to x_py(rstart + i)
-        // VecRestoreArray(x, &x_array); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        // Cleanup PETSc temporaries (Owned vectors)
-        // 1. Reset array view for x
-        // ierr = VecResetArray(x); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        // ierr = VecResetArray(b); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-
         // 2. Destroy owned PETSc temporaries (ONCE)
         VecDestroy(&B_prime_u);
         VecDestroy(&rhs);
@@ -325,9 +350,7 @@ public:
         Vec tmp = nullptr; ierr = VecDuplicate(Bp_u, &tmp); CHKERRABORT(PETSC_COMM_WORLD, ierr);
         ierr = VecCopy(B_u, Bp_u); CHKERRABORT(PETSC_COMM_WORLD, ierr);
         
-        Mat C_du_T = nullptr; // Need to compute C_du^T only for RHS
-        ierr = MatTranspose(A.m_Cdu, MAT_INITIAL_MATRIX, &C_du_T); CHKERRABORT(PETSC_COMM_WORLD, ierr);
-        ierr = MatMult(C_du_T, B_d, tmp); CHKERRABORT(PETSC_COMM_WORLD, ierr);
+        ierr = MatMult(A.m_Cud, B_d, tmp); CHKERRABORT(PETSC_COMM_WORLD, ierr);
         ierr = VecAXPY(Bp_u, 1.0, tmp); CHKERRABORT(PETSC_COMM_WORLD, ierr); // Bp_u is now B'_u
 
         // Compute RHS: rhs = B'_u - A'_up * X_p
@@ -341,7 +364,6 @@ public:
         // ... Copy result to x_u (kept as is) ...
 
         // Cleanup
-        MatDestroy(&C_du_T);
         VecDestroy(&B_u); VecDestroy(&B_d); VecDestroy(&X_p); VecDestroy(&X_u);
         VecDestroy(&Bp_u); VecDestroy(&tmp); VecDestroy(&rhs);
     }
